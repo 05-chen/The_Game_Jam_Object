@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://b0k1irlo5i4ov"]
+
+[ext_resource type="Script" uid="uid://caysqytu7a5bx" path="res://scripts/ghost_ai.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="bm1"]
+size = Vector3(1, 1.8, 1)
+
+[sub_resource type="CapsuleShape3D" id="cap1"]
+height = 1.8
+
+[node name="Ghost" type="CharacterBody3D" unique_id=1251561153]
+collision_layer = 4
+script = ExtResource("1")
+
+[node name="GhostMesh" type="MeshInstance3D" parent="." unique_id=1349625501]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+mesh = SubResource("bm1")
+
+[node name="Col" type="CollisionShape3D" parent="." unique_id=1540610274]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("cap1")
