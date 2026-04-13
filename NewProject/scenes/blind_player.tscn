@@ -1,0 +1,93 @@
+[gd_scene format=3 uid="uid://cov3vvru0kjna"]
+
+[ext_resource type="Script" uid="uid://bg3t3t5ihmt" path="res://scripts/blind_player.gd" id="1"]
+
+[sub_resource type="CapsuleShape3D" id="cap1"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="hmat"]
+albedo_color = Color(0.8, 0.65, 0.5, 1)
+
+[sub_resource type="BoxMesh" id="hand"]
+size = Vector3(0.15, 0.1, 0.3)
+
+[node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
+collision_layer = 2
+script = ExtResource("1")
+
+[node name="Col" type="CollisionShape3D" parent="." unique_id=1073525130]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("cap1")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1115460610]
+transform = Transform3D(1, 0, 0, 0, 0.8038361, 0.59485084, 0, -0.59485084, 0.8038361, 0, 1.6, 0)
+
+[node name="HandMesh" type="MeshInstance3D" parent="Camera3D" unique_id=1625549009]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, -0.3, -0.5)
+material_override = SubResource("hmat")
+mesh = SubResource("hand")
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=726750545]
+
+[node name="Stats" type="VBoxContainer" parent="UI" unique_id=9429042]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -240.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 70.0
+grow_horizontal = 0
+
+[node name="HealthLabel" type="Label" parent="UI/Stats" unique_id=257269802]
+layout_mode = 2
+text = "心理值: 100%"
+
+[node name="HealthBar" type="ProgressBar" parent="UI/Stats" unique_id=1860856737]
+layout_mode = 2
+value = 100.0
+show_percentage = false
+
+[node name="MsgLabel" type="Label" parent="UI" unique_id=1565033637]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 80.0
+offset_right = 200.0
+offset_bottom = 120.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 20
+horizontal_alignment = 1
+
+[node name="Cross" type="Label" parent="UI" unique_id=1322575120]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -10.0
+offset_top = -10.0
+offset_right = 10.0
+offset_bottom = 10.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "+"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HintLabel" type="Label" parent="UI" unique_id=1669478540]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -150.0
+offset_top = -40.0
+offset_right = 150.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "[E] 互动"
+horizontal_alignment = 1

@@ -1,0 +1,26 @@
+[gd_scene format=3 uid="uid://cnkmrhyug8sxw"]
+
+[ext_resource type="Script" uid="uid://bw0vruwiphr1f" path="res://scripts/medicine_item.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="bm1"]
+size = Vector3(0.4, 0.4, 0.4)
+
+[sub_resource type="BoxShape3D" id="bs1"]
+size = Vector3(0.4, 0.4, 0.4)
+
+[node name="MedicineItem" type="StaticBody3D" unique_id=1058382966]
+collision_layer = 8
+script = ExtResource("1")
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=676384729]
+mesh = SubResource("bm1")
+
+[node name="Col" type="CollisionShape3D" parent="." unique_id=1275073595]
+shape = SubResource("bs1")
+
+[node name="Lbl" type="Label3D" parent="." unique_id=1244954640]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+billboard = 1
+modulate = Color(1, 1, 1, 0.9)
+text = "Item"
+outline_size = 8
