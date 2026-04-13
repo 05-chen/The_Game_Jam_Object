@@ -75,7 +75,7 @@ environment/defaults/default_clear_color=Color(0, 0, 0, 1)
 
 [steam]
 
-initialization/app_id=0
-initialization/initialize_on_startup=false
-initialization/embed_callbacks=false
+initialization/app_id=480
+initialization/initialize_on_startup=true
+initialization/embed_callbacks=true
 multiplayer_peer/max_channels=4

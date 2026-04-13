@@ -1,172 +1,247 @@
-# 网络管理器脚本 - 处理多人游戏的网络连接和房间管理
+# 网络管理器脚本 - 使用 Steam P2P 实现跨网络远程联机
+# [已修改] ENetMultiplayerPeer → SteamMultiplayerPeer
+# [已修改] 通过 Steam Lobby + metadata 匹配房间，无需 IP 地址
 
-# 基本设置
 extends Node
 
-# 常量定义
-const DEFAULT_PORT = 9527  # 默认端口号
+# ── 常量 ──
+const MAX_MEMBERS = 2  # 最大玩家数
 
-# 网络相关变量
-var peer: ENetMultiplayerPeer = null  # 网络对等体
-var invite_code: String = ""  # 房间邀请码
-var is_host: bool = false  # 是否为主机
-var guest_connected: bool = false  # 是否有玩家连接
+# ── 网络状态 ──
+var steam_id: int = 0                      # 本机 Steam ID
+var lobby_id: int = 0                      # 当前 Steam 大厅 ID
+var peer: SteamMultiplayerPeer = null      # Steam 多人对等体
+var invite_code: String = ""               # 房间邀请码
+var is_host: bool = false                  # 是否为房主
+var guest_connected: bool = false          # 是否有玩家已连接
+var remote_peer_id: int = 0                # 对方的 peer ID
+var _steam_ok: bool = false                # Steam 是否成功初始化
 
-# 网络事件信号
-signal player_connected()  # 玩家连接信号
-signal player_disconnected()  # 玩家断开连接信号
-signal connection_failed()  # 连接失败信号
-signal connection_succeeded()  # 连接成功信号
-signal code_verified(ok: bool)  # 邀请码验证结果信号
+# ── 信号 ──
+signal player_connected()
+signal player_disconnected()
+signal connection_failed()
+signal connection_succeeded()
+signal code_verified(ok: bool)
+signal steam_init_failed()
 
-# 初始化函数 - 节点加载时执行
+# ══════════════════════════════════════════════
+#  初始化
+# ══════════════════════════════════════════════
+
 func _ready() -> void:
-	# 连接网络事件信号
+	_init_steam()
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
 	multiplayer.connection_failed.connect(_on_connection_failed)
 
-# 生成邀请码函数
+func _process(_delta: float) -> void:
+	if _steam_ok:
+		Steam.run_callbacks()
+
+# ══════════════════════════════════════════════
+#  Steam 初始化
+# ══════════════════════════════════════════════
+
+func _init_steam() -> void:
+	# 开发阶段使用 480 (Spacewar 测试 ID)
+	# 正式发布时替换为你自己的 App ID
+	var init_result: Dictionary = Steam.steamInitEx(true, 480)
+	print("[Steam] Init result: ", init_result)
+	if init_result["status"] == 0:
+		_steam_ok = true
+		steam_id = Steam.getSteamID()
+		print("[Steam] 初始化成功, Steam ID: ", steam_id)
+		Steam.lobby_created.connect(_on_lobby_created)
+		Steam.lobby_joined.connect(_on_lobby_joined)
+		Steam.lobby_match_list.connect(_on_lobby_match_list)
+	else:
+		_steam_ok = false
+		print("[Steam] 初始化失败: ", init_result)
+		steam_init_failed.emit()
+
+func is_steam_ready() -> bool:
+	return _steam_ok
+
+# ══════════════════════════════════════════════
+#  邀请码生成
+# ══════════════════════════════════════════════
+
 func generate_code() -> String:
-	# 定义可用字符集（排除容易混淆的字符）
 	var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	var code = ""
-	# 生成6位随机邀请码
 	for i in range(6):
 		code += chars[randi() % chars.length()]
 	return code
 
-# 创建房间函数
+# ══════════════════════════════════════════════
+#  创建房间（房主）
+# ══════════════════════════════════════════════
+
 func create_room() -> String:
-	# 创建新的网络对等体
-	peer = ENetMultiplayerPeer.new()
-	# 创建服务器，最多允许1个客户端连接
-	var err = peer.create_server(DEFAULT_PORT, 1)
-	# 检查是否创建成功
-	if err != OK:
+	if not _steam_ok:
 		return ""
-	# 设置多人游戏对等体
-	multiplayer.multiplayer_peer = peer
-	# 设置为主机
+	invite_code = generate_code()
 	is_host = true
 	guest_connected = false
-	# 生成邀请码
-	invite_code = generate_code()
+	# 创建 PUBLIC 类型 Steam 大厅，以便客户端通过 requestLobbyList 搜索到
+	# 安全性通过邀请码二次验证保障
+	Steam.createLobby(Steam.LOBBY_TYPE_PUBLIC, MAX_MEMBERS)
 	return invite_code
 
-# 加入房间函数
-func join_room(ip: String, code: String) -> bool:
-	# 创建新的网络对等体
-	peer = ENetMultiplayerPeer.new()
-	# 创建客户端连接
-	var err = peer.create_client(ip, DEFAULT_PORT)
-	# 检查是否连接成功
+func _on_lobby_created(result: int, this_lobby_id: int) -> void:
+	if result != 1:
+		print("[Steam] 创建大厅失败, result: ", result)
+		invite_code = ""
+		is_host = false
+		return
+	lobby_id = this_lobby_id
+	print("[Steam] 大厅已创建, ID: ", lobby_id, ", 邀请码: ", invite_code)
+	# 在大厅 metadata 中存储邀请码和游戏标识
+	Steam.setLobbyData(lobby_id, "invite_code", invite_code)
+	Steam.setLobbyData(lobby_id, "game_name", "blind_and_lame")
+	# 创建 SteamMultiplayerPeer 作为 Host
+	peer = SteamMultiplayerPeer.new()
+	var err = peer.create_host(0)
 	if err != OK:
-		return false
-	# 设置多人游戏对等体
+		print("[Steam] 创建 Host Peer 失败: ", err)
+		return
 	multiplayer.multiplayer_peer = peer
-	# 设置为客户端
+	print("[Steam] Host Peer 已就绪")
+
+# ══════════════════════════════════════════════
+#  加入房间（客户端）
+# ══════════════════════════════════════════════
+
+func join_room_by_code(code: String) -> bool:
+	if not _steam_ok:
+		return false
+	invite_code = code.to_upper()
 	is_host = false
-	# 保存邀请码
-	invite_code = code
+	# 通过 Steam Lobby 搜索匹配邀请码的大厅
+	Steam.addRequestLobbyListStringFilter("game_name", "blind_and_lame", Steam.LOBBY_COMPARISON_EQUAL)
+	Steam.addRequestLobbyListStringFilter("invite_code", invite_code, Steam.LOBBY_COMPARISON_EQUAL)
+	Steam.addRequestLobbyListResultCountFilter(1)
+	Steam.requestLobbyList()
 	return true
 
-# 关闭房间函数
+# 兼容旧接口
+func join_room(ip: String, code: String) -> bool:
+	return join_room_by_code(code)
+
+func _on_lobby_match_list(lobbies: Array) -> void:
+	if is_host:
+		return
+	if lobbies.size() == 0:
+		print("[Steam] 未找到匹配的大厅, 邀请码: ", invite_code)
+		connection_failed.emit()
+		return
+	var target_lobby = lobbies[0]
+	print("[Steam] 找到大厅: ", target_lobby, ", 正在加入...")
+	Steam.joinLobby(target_lobby)
+
+func _on_lobby_joined(this_lobby_id: int, _permissions: int, _locked: bool, response: int) -> void:
+	if response != 1:
+		print("[Steam] 加入大厅失败, response: ", response)
+		connection_failed.emit()
+		return
+	lobby_id = this_lobby_id
+	print("[Steam] 已加入大厅: ", lobby_id)
+	if not is_host:
+		var host_steam_id = Steam.getLobbyOwner(lobby_id)
+		print("[Steam] 房主 Steam ID: ", host_steam_id)
+		peer = SteamMultiplayerPeer.new()
+		var err = peer.create_client(host_steam_id, 0)
+		if err != OK:
+			print("[Steam] 创建 Client Peer 失败: ", err)
+			connection_failed.emit()
+			return
+		multiplayer.multiplayer_peer = peer
+
+# ══════════════════════════════════════════════
+#  关闭房间
+# ══════════════════════════════════════════════
+
 func close_room() -> void:
-	# 清理网络连接
+	if lobby_id != 0:
+		Steam.leaveLobby(lobby_id)
+		lobby_id = 0
 	if peer != null:
 		multiplayer.multiplayer_peer = null
 		peer = null
-	# 重置状态
 	is_host = false
 	guest_connected = false
 	invite_code = ""
+	remote_peer_id = 0
 
-# 玩家连接处理函数
-func _on_peer_connected(_id: int) -> void:
-	# 只有主机需要处理
+# ══════════════════════════════════════════════
+#  Godot 多人连接回调
+# ══════════════════════════════════════════════
+
+func _on_peer_connected(id: int) -> void:
+	remote_peer_id = id
 	if is_host:
-		# 设置玩家已连接
 		guest_connected = true
-		# 发送玩家连接信号
 		player_connected.emit()
+	print("[Network] Peer 已连接: ", id)
 
-# 玩家断开连接处理函数
-func _on_peer_disconnected(_id: int) -> void:
-	# 只有主机需要处理
+func _on_peer_disconnected(id: int) -> void:
 	if is_host:
-		# 设置玩家已断开
 		guest_connected = false
-		# 发送玩家断开连接信号
 		player_disconnected.emit()
+	remote_peer_id = 0
+	print("[Network] Peer 已断开: ", id)
 
-# 连接到服务器处理函数
 func _on_connected_to_server() -> void:
-	# 向主机发送邀请码进行验证
+	print("[Network] 已连接到服务器，发送邀请码验证...")
 	rpc_id(1, "_send_code_to_host", invite_code)
-	# 发送连接成功信号
 	connection_succeeded.emit()
 
-# 连接失败处理函数
 func _on_connection_failed() -> void:
-	# 发送连接失败信号
 	connection_failed.emit()
-	# 关闭房间
 	close_room()
 
-# 发送邀请码到主机函数（RPC）
+# ══════════════════════════════════════════════
+#  邀请码验证 (RPC)
+# ══════════════════════════════════════════════
+
 @rpc("any_peer", "reliable")
 func _send_code_to_host(code: String) -> void:
-	# 只有主机需要处理
 	if not is_host:
 		return
-	# 获取发送者ID
 	var sender_id = multiplayer.get_remote_sender_id()
-	# 验证邀请码
 	if code == invite_code:
-		# 验证成功，通知客户端
 		_code_result.rpc_id(sender_id, true)
-		# 发送验证成功信号
 		code_verified.emit(true)
 	else:
-		# 验证失败，通知客户端
 		_code_result.rpc_id(sender_id, false)
-		# 等待0.5秒后断开连接
 		await get_tree().create_timer(0.5).timeout
 		peer.disconnect_peer(sender_id)
 
-# 邀请码验证结果处理函数（RPC）
 @rpc("authority", "reliable")
 func _code_result(ok: bool) -> void:
-	# 发送验证结果信号
 	code_verified.emit(ok)
-	# 验证失败时关闭房间
 	if not ok:
 		await get_tree().create_timer(0.5).timeout
 		close_room()
 
-# 开始游戏函数（RPC）
+# ══════════════════════════════════════════════
+#  开始游戏 (RPC)
+# ══════════════════════════════════════════════
+
 @rpc("authority", "reliable", "call_local")
 func start_game_all(host_role: int) -> void:
-	# 根据是否为服务器设置角色
 	if multiplayer.is_server():
-		# 服务器（主机）使用指定的角色
 		GameManager.current_role = host_role
 	else:
-		# 客户端使用与主机相反的角色
 		if host_role == GameManager.ROLE_BLIND:
 			GameManager.current_role = GameManager.ROLE_LAME
 		else:
 			GameManager.current_role = GameManager.ROLE_BLIND
-	# 重置游戏状态
 	GameManager.reset_game()
-	# 切换到游戏世界场景
 	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
 
-# 主机开始游戏函数
 func host_start_game(host_role: int) -> void:
-	# 只有主机且有玩家连接时才能开始游戏
 	if is_host and guest_connected:
-		# 调用RPC函数开始游戏
 		start_game_all.rpc(host_role)
