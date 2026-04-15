@@ -1,112 +1,135 @@
 # 瘸子玩家脚本 - 控制瘸子角色的交互和疼痛系统
+# [已修改] 增加 is_local 标记，区分本地/远程
+# [已修改] 远程玩家禁用相机和UI，仅接收旋转同步
+# [已修改] 本地玩家每帧广播旋转和疼痛值
+# [修复] 瘸子世界坐标始终跟随瞎子，不独立移动
 
-# 基本属性设置
 extends CharacterBody3D
 
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
-# 场景节点引用
-@onready var camera: Camera3D = $Camera3D  # 相机节点
-@onready var pain_bar: ProgressBar = $UI/Stats/PainBar  # 疼痛值条
-@onready var pain_label: Label = $UI/Stats/PainLabel  # 疼痛值标签
-@onready var voice_label: Label = $UI/Stats/VoiceLabel  # 语音音量标签
-@onready var pain_overlay: ColorRect = $UI/PainOverlay  # 疼痛效果覆盖层
-@onready var msg_label: Label = $UI/MsgLabel  # 消息标签
+# [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
+var is_local: bool = true
 
-# 初始化函数 - 游戏开始时执行
+# [新增] 瞎子玩家引用 - 用于位置跟随
+var _blind_ref: Node3D = null
+
+# 场景节点引用
+@onready var camera: Camera3D = $Camera3D
+@onready var pain_bar: ProgressBar = $UI/Stats/PainBar
+@onready var pain_label: Label = $UI/Stats/PainLabel
+@onready var voice_label: Label = $UI/Stats/VoiceLabel
+@onready var pain_overlay: ColorRect = $UI/PainOverlay
+@onready var msg_label: Label = $UI/MsgLabel
+
+# 初始化函数
 func _ready() -> void:
-	# 捕获鼠标
+	print("[LamePlayer] _ready: is_local=", is_local)
+	# [新增] 远程玩家：禁用相机和UI
+	if not is_local:
+		camera.current = false
+		for child in $UI.get_children():
+			if child is CanvasItem:
+				child.visible = false
+		return
+
+	# ── 以下仅本地玩家执行 ──
+	camera.current = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# 连接游戏事件信号
 	GameManager.pain_value_changed.connect(_on_pain)
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
 
-# 输入处理函数 - 处理鼠标和键盘输入
+# 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
-	# 处理鼠标移动（视角控制）
+	if not is_local:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * mouse_sensitivity)  # 左右旋转
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)  # 上下旋转
-		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)  # 限制上下视角
-	# 处理交互按键
+		rotate_y(-event.relative.x * mouse_sensitivity)
+		camera.rotate_x(-event.relative.y * mouse_sensitivity)
+		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
 	if event.is_action_pressed("interact"):
 		_try_interact()
 
-# 物理处理函数 - 每帧执行
+# 物理处理函数
 func _physics_process(delta: float) -> void:
-	# 游戏结束时停止处理
+	# [修复] 多人模式：瘸子位置始终跟随瞎子
+	if NetworkManager.is_multiplayer_game:
+		if _blind_ref == null or not is_instance_valid(_blind_ref):
+			_blind_ref = get_node_or_null("../BlindPlayer")
+		if _blind_ref and is_instance_valid(_blind_ref):
+			global_position = _blind_ref.global_position
+
+	# 远程玩家不处理本地逻辑
+	if not is_local:
+		return
 	if GameManager.is_game_over:
 		return
-	# 更新疼痛值
 	GameManager.update_pain(delta)
+	# [修复] 只同步旋转和疼痛值（位置来自瞎子，不需要单独同步）
+	if NetworkManager.is_multiplayer_game:
+		_sync_lame.rpc(rotation.y, camera.rotation.x, GameManager.pain_value)
+
+# [修复] 瘸子状态同步 RPC - 只传旋转和疼痛值
+@rpc("any_peer", "unreliable_ordered", "call_remote")
+func _sync_lame(rot_y: float, cam_x: float, pain: float) -> void:
+	if NetworkManager.is_multiplayer_game:
+		var sender_id = multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	rotation.y = rot_y
+	if camera:
+		camera.rotation.x = cam_x
+	GameManager.pain_value = pain
+	GameManager.pain_value_changed.emit(pain)
 
 # 疼痛值变化处理函数
 func _on_pain(value: float) -> void:
-	# 更新UI显示
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
-	# 计算并显示语音音量
 	var voice_pct = int(GameManager.get_voice_multiplier() * 100)
-	voice_label.text = "语音音量: " + str(voice_pct) + "%"
-	# 疼痛效果覆盖层
+	voice_label.text = "语音音量: " + str(voice_pct) + "% | 常开麦"
 	if value > 60.0:
-		# 疼痛值超过60%时显示红色覆盖层
-		var intensity = (value - 60.0) / 40.0 * 0.3  # 计算覆盖层透明度
+		var intensity = (value - 60.0) / 40.0 * 0.3
 		pain_overlay.color = Color(1, 0, 0, intensity)
 	else:
-		# 疼痛值较低时隐藏覆盖层
 		pain_overlay.color = Color(1, 0, 0, 0)
 
-# 交互尝试函数 - 检测和处理与物体的交互
+# 交互尝试函数
 func _try_interact() -> void:
-	# 获取物理空间
 	var space = get_world_3d().direct_space_state
-	# 射线检测起点和终点（比瞎子角色更远的检测距离）
 	var from = camera.global_position
 	var to = from - camera.global_transform.basis.z * 5.0
-	# 创建射线检测参数
 	var params = PhysicsRayQueryParameters3D.create(from, to, 8)
-	# 执行射线检测
 	var hit = space.intersect_ray(params)
-	# 处理检测结果
 	if hit.size() > 0:
 		var obj = hit["collider"]
-		# 如果物体有interact方法，则调用它
 		if obj.has_method("interact"):
 			obj.interact(GameManager.ROLE_LAME)
 
 # 游戏结束处理函数
 func _on_over(won: bool) -> void:
-	# 显示鼠标
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	# 根据游戏结果显示不同消息
 	if won:
 		msg_label.text = "逃离成功!"
 	else:
 		msg_label.text = "游戏结束..."
-	# 显示消息
 	msg_label.visible = true
 
 # 药物收集处理函数
 func _on_med(role: int) -> void:
-	# 只有当药物是给瘸子角色时才显示消息
 	if role == GameManager.ROLE_LAME:
 		_show_msg("止疼药已服用! 疼痛值降低!")
 
 # 谜题解决处理函数
 func _on_puzzle(total: int) -> void:
-	# 显示谜题解决消息，包含进度
 	_show_msg("谜题已解开! (" + str(total) + "/" + str(GameManager.puzzles_required) + ")")
 
-# 消息显示函数 - 显示临时消息
+# 消息显示函数
 func _show_msg(text: String) -> void:
-	# 设置消息文本
 	msg_label.text = text
-	# 显示消息
 	msg_label.visible = true
-	# 创建动画，2秒后隐藏消息
 	var tw = create_tween()
 	tw.tween_interval(2.0)
 	tw.tween_callback(func() -> void: msg_label.visible = false)
