@@ -18,7 +18,7 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 
 GameManager="*res://scripts/game_manager.gd"
 NetworkManager="*res://scripts/network_manager.gd"
-VoiceChatManager="*res://scripts/voice_chat_manager.gd"
+VoiceChatManager="*res://scripts/VoiceCore.gd"
 
 [display]
 
@@ -82,6 +82,6 @@ environment/defaults/default_clear_color=Color(0, 0, 0, 1)
 [steam]
 
 initialization/app_id=480
-initialization/initialize_on_startup=true
-initialization/embed_callbacks=true
+initialization/initialize_on_startup=false
+initialization/embed_callbacks=false
 multiplayer_peer/max_channels=4

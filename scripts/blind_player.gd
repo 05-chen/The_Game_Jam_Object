@@ -11,13 +11,14 @@ extends CharacterBody3D
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")  # 重力设置
 
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
-var is_local: bool = true
+var is_local: bool = false # 默认为 false，由生成函数来激活
 
 # 场景节点引用
 @onready var camera: Camera3D = $Camera3D
 @onready var health_bar: ProgressBar = $UI/Stats/HealthBar
 @onready var health_label: Label = $UI/Stats/HealthLabel
 @onready var msg_label: Label = $UI/MsgLabel
+@onready var vision_mask: ColorRect = $UI/VisionMask
 
 var spot_light: SpotLight3D = null
 
@@ -134,22 +135,42 @@ func _setup_spot_light() -> void:
 	camera_env.ambient_light_energy = 0.0
 	camera_env.fog_enabled = false
 	camera.environment = camera_env
-
-# 灯光刷新函数
+	
+	
 func _refresh_light() -> void:
-	var ratio = GameManager.mental_health / GameManager.mental_health_max
+	# 1. 关键：如果不是本地玩家，直接跳过
+	if not is_local: 
+		return
+
+	# 2. 计算比例
+	var mh = GameManager.mental_health
+	var ratio = clamp(mh / 100.0, 0.0, 1.0)
+	
+	# 3. 物理灯光逻辑
 	if spot_light != null:
 		spot_light.light_energy = 1.0 + ratio * 1.5
-		spot_light.spot_range = 0.5
-		spot_light.light_color = Color(0.1, 0.1, 0.15)
-	if camera and not camera.environment:
-		var camera_env = Environment.new()
-		camera_env.background_mode = Environment.BG_COLOR
-		camera_env.background_color = Color(0, 0, 0)
-		camera_env.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED
-		camera_env.ambient_light_energy = 0.0
-		camera_env.fog_enabled = false
-		camera.environment = camera_env
+	
+	# 4. Shader 遮罩逻辑
+	if vision_mask and vision_mask.material is ShaderMaterial:
+		var mat = vision_mask.material as ShaderMaterial
+		
+		# --- 修复报错的核心：直接赋值，不再使用 var 重复声明 ---
+		var current_screen_size = get_viewport().get_visible_rect().size
+		mat.set_shader_parameter("screen_size", current_screen_size)
+		
+		# 计算半径阈值
+		var target_radius = ratio * 0.18
+		if mh < 8.0:
+			target_radius = 0.0
+			
+		# 获取 Shader 中当前的半径值
+		var current_r = mat.get_shader_parameter("vision_radius")
+		
+		# 使用 lerp 平滑缩放
+		var smooth_r = lerp(current_r, target_radius, 0.1)
+		mat.set_shader_parameter("vision_radius", smooth_r)
+
+
 
 # 交互尝试函数
 func _try_interact() -> void:

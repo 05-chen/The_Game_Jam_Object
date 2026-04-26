@@ -22,50 +22,49 @@ func _build_room() -> void:
 	room.set_script(scr)
 	add_child(room)
 
-# [已修改] 生成玩家函数 - 支持单人和多人
 func _spawn_players() -> void:
-	# [修复] 使用 is_multiplayer_game 标记，不依赖 peer 对象
 	var is_mp = NetworkManager.is_multiplayer_game
-	print("[GameWorld] _spawn_players: is_mp=", is_mp, " peer=", NetworkManager.peer, " role=", GameManager.current_role)
+	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人")
 
 	if not is_mp:
-		# ── 单人模式：与原版一致，只生成选定角色 ──
-		var path := ""
-		if GameManager.current_role == GameManager.ROLE_BLIND:
-			path = "res://scenes/blind_player.tscn"
-		else:
-			path = "res://scenes/lame_player.tscn"
+		# ── 单人模式保持不变 ──
+		var path = "res://scenes/blind_player.tscn" if GameManager.current_role == GameManager.ROLE_BLIND else "res://scenes/lame_player.tscn"
 		var player = load(path).instantiate()
 		player.position = Vector3(0, 1, 0)
-		player.add_to_group("player")
 		add_child(player)
 	else:
-		# ── 多人模式：同时生成两个玩家 ──
+		# ── 多人模式：核心修复 ──
 		var blind = load("res://scenes/blind_player.tscn").instantiate()
 		var lame = load("res://scenes/lame_player.tscn").instantiate()
 
+		# 【关键修复 1】强制唯一且一致的命名
+		# 即使是本地玩家，也要确保两端的节点路径都是 /root/GameWorld/BlindPlayer
 		blind.name = "BlindPlayer"
 		lame.name = "LamePlayer"
 
-		# 根据本机角色设置 is_local 标记
+		# 【关键修复 2】在 add_child 之前设置 is_local
+		# 这样当节点进入场景树触发 _ready 时，它已经知道自己是本地还是远程了
 		blind.is_local = (GameManager.current_role == GameManager.ROLE_BLIND)
 		lame.is_local = (GameManager.current_role == GameManager.ROLE_LAME)
-		print("[GameWorld] blind.is_local=", blind.is_local, " lame.is_local=", lame.is_local)
 
-		blind.position = Vector3(0, 1, 0)
-		lame.position = Vector3(0, 1, 0)  # [修复] 两个玩家初始位置相同
-
-		blind.add_to_group("player")
-		lame.add_to_group("player")
-
+		# 将节点添加进场景
 		add_child(blind)
 		add_child(lame)
 
-		# 为远程玩家添加可视化标记（半透明胶囊）
+		# 【关键修复 3】远程实体优化：关闭物理碰撞
+		# 防止由于网络同步的位置与本地物理引擎发生冲突，导致“瞬移”或“抖动”
 		if not blind.is_local:
-			_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))  # 蓝色 = 瞎子
+			_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
 		if not lame.is_local:
-			_add_player_marker(lame, Color(0.2, 0.8, 0.3, 0.7))  # 绿色 = 瘸子
+			_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
+
+# 辅助函数：优化远程玩家代理
+func _setup_remote_proxy(player: CharacterBody3D, color: Color) -> void:
+	# 禁用远程玩家的物理碰撞，只做坐标同步
+	player.collision_layer = 0
+	player.collision_mask = 0
+	# 调用你原本的添加胶囊标记函数
+	_add_player_marker(player, color)
 
 # [新增] 为远程玩家添加可视化胶囊标记
 func _add_player_marker(player: Node3D, color: Color) -> void:

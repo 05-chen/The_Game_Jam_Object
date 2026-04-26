@@ -9,7 +9,7 @@ extends CharacterBody3D
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
-var is_local: bool = true
+var is_local: bool = false
 
 # [新增] 瞎子玩家引用 - 用于位置跟随
 var _blind_ref: Node3D = null
@@ -25,21 +25,18 @@ var _blind_ref: Node3D = null
 # 初始化函数
 func _ready() -> void:
 	print("[LamePlayer] _ready: is_local=", is_local)
-	# [新增] 远程玩家：禁用相机和UI
 	if not is_local:
+		# 远程玩家：禁用摄像机，防止抢夺视野 
 		camera.current = false
+		# 禁用本地 UI 
 		for child in $UI.get_children():
-			if child is CanvasItem:
-				child.visible = false
+			if child is CanvasItem: child.visible = false
 		return
-
-	# ── 以下仅本地玩家执行 ──
-	camera.current = true
+	
+	# ── 仅本地玩家执行 ──
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	GameManager.pain_value_changed.connect(_on_pain)
-	GameManager.game_over_triggered.connect(_on_over)
-	GameManager.medicine_collected.connect(_on_med)
-	GameManager.puzzle_solved.connect(_on_puzzle)
+	# 寻找本地瞎子引用以便跟随
+	_blind_ref = get_parent().get_node_or_null("BlindPlayer")
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
@@ -52,37 +49,58 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("interact"):
 		_try_interact()
 
-# 物理处理函数
-func _physics_process(delta: float) -> void:
-	# [修复] 多人模式：瘸子位置始终跟随瞎子
-	if NetworkManager.is_multiplayer_game:
-		if _blind_ref == null or not is_instance_valid(_blind_ref):
-			_blind_ref = get_node_or_null("../BlindPlayer")
-		if _blind_ref and is_instance_valid(_blind_ref):
-			global_position = _blind_ref.global_position
 
-	# 远程玩家不处理本地逻辑
+
+
+func _physics_process(delta: float) -> void:
+	# 1. 核心保护：如果不是本地玩家，绝对不执行任何计算逻辑
+	# 远程实体的位置和旋转完全交给下面的 RPC 函数来被动修改
 	if not is_local:
 		return
+		
+	# 2. 游戏状态检查
 	if GameManager.is_game_over:
 		return
+
+	# 3. 核心跟随逻辑（仅本地瘸子执行）
+	# 确保自己始终粘在瞎子身上
+	if _blind_ref == null or not is_instance_valid(_blind_ref):
+		_blind_ref = get_node_or_null("../BlindPlayer")
+		
+	if _blind_ref and is_instance_valid(_blind_ref):
+		global_position = _blind_ref.global_position
+
+	# 4. 状态更新
 	GameManager.update_pain(delta)
-	# [修复] 只同步旋转和疼痛值（位置来自瞎子，不需要单独同步）
+	
+	# 5. 多人同步：广播自己的状态
+	# 我们只广播旋转（Y轴身子，X轴相机）和疼痛值
 	if NetworkManager.is_multiplayer_game:
 		_sync_lame.rpc(rotation.y, camera.rotation.x, GameManager.pain_value)
 
-# [修复] 瘸子状态同步 RPC - 只传旋转和疼痛值
+
+# [修复版] 瘸子状态同步 RPC
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _sync_lame(rot_y: float, cam_x: float, pain: float) -> void:
+	# 【关键修改 1】如果是本地控制者，直接忽略来自网络的同步包，防止动作抖动
+	if is_local:
+		return
+
+	# 安全检查
 	if NetworkManager.is_multiplayer_game:
 		var sender_id = multiplayer.get_remote_sender_id()
 		if not NetworkManager.is_trusted_sender(sender_id):
 			return
+
+	# 更新远程实体的外观
 	rotation.y = rot_y
 	if camera:
 		camera.rotation.x = cam_x
-	GameManager.pain_value = pain
-	GameManager.pain_value_changed.emit(pain)
+	
+	# 【关键修改 2】仅更新显示效果，不改全局变量，防止逻辑冲突
+	# 调用你 lame_player.gd 里已有的处理函数来更新进度条和红屏效果
+	_on_pain(pain)
+
 
 # 疼痛值变化处理函数
 func _on_pain(value: float) -> void:
