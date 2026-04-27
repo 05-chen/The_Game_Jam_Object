@@ -6,14 +6,24 @@
 extends Node3D
 
 var _item_idx: int = 0  # 物品命名计数器
+var _ghost_spawn_positions: Dictionary = {}
+var _ui_layer: CanvasLayer = null
+var _pause_panel: PanelContainer = null
+var _dev_label: Label = null
+var _fade_rect: ColorRect = null
 
 # 初始化函数
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_room()
 	_spawn_players()
 	_spawn_items()
 	_spawn_ghost()
+	_setup_demo_ui()
+	_ensure_checkpoint_trigger()
+	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
+	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
 
 # 构建房间函数 - 不变
 func _build_room() -> void:
@@ -117,19 +127,294 @@ func _spawn_ghost() -> void:
 	if NetworkManager.is_multiplayer_game:
 		g.is_host_controlled = multiplayer.is_server()
 	add_child(g)
+	_ghost_spawn_positions[g.get_path()] = g.global_position
 
-# [已修改] 游戏结束处理 - 多人模式下关闭房间
-func _on_game_over(_won: bool) -> void:
-	await get_tree().create_timer(4.0).timeout
-	if NetworkManager.is_multiplayer_game:
-		get_tree().change_scene_to_file("res://scenes/game_room.tscn")
-	else:
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
-
-# 输入处理函数 - 暂停
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause_game"):
-		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+# [演示模式] 游戏失败改为从存档点复活；胜利仍回房间/主菜单
+func _on_game_over(won: bool) -> void:
+	if won:
+		await get_tree().create_timer(2.0).timeout
+		if NetworkManager.is_multiplayer_game:
+			get_tree().change_scene_to_file("res://scenes/game_room.tscn")
 		else:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		return
+	_request_respawn_from_checkpoint()
+
+# 输入处理函数 - 暂停 + 开发者快捷键
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			_request_toggle_pause()
+		elif event.keycode == KEY_G:
+			_request_toggle_invincible()
+		elif event.keycode == KEY_K:
+			_request_clear_ghosts()
+		elif event.keycode == KEY_P:
+			_request_reset_status()
+
+func _request_toggle_invincible() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_toggle_invincible_rpc.rpc_id(1)
+	else:
+		_apply_invincible.rpc(not GameManager.dev_invincible)
+
+@rpc("any_peer", "reliable")
+func _request_toggle_invincible_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_apply_invincible.rpc(not GameManager.dev_invincible)
+
+@rpc("authority", "reliable", "call_local")
+func _apply_invincible(enabled: bool) -> void:
+	GameManager.set_dev_invincible(enabled)
+
+func _request_clear_ghosts() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_clear_ghosts_rpc.rpc_id(1)
+	else:
+		_apply_clear_ghosts.rpc()
+
+@rpc("any_peer", "reliable")
+func _request_clear_ghosts_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_apply_clear_ghosts.rpc()
+
+@rpc("authority", "reliable", "call_local")
+func _apply_clear_ghosts() -> void:
+	for g in get_tree().get_nodes_in_group("ghost_ai"):
+		if g is Node3D:
+			var ghost := g as Node3D
+			ghost.global_position = Vector3(0, -100, 0)
+
+func _request_reset_status() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_reset_status_rpc.rpc_id(1)
+	else:
+		_apply_reset_status.rpc()
+
+@rpc("any_peer", "reliable")
+func _request_reset_status_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_apply_reset_status.rpc()
+
+@rpc("authority", "reliable", "call_local")
+func _apply_reset_status() -> void:
+	GameManager.mental_health = GameManager.mental_health_max
+	GameManager.pain_value = 0.0
+	GameManager.is_game_over = false
+	GameManager.is_game_won = false
+	GameManager.mental_health_changed.emit(GameManager.mental_health)
+	GameManager.pain_value_changed.emit(GameManager.pain_value)
+
+func _request_toggle_pause() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_toggle_pause_rpc.rpc_id(1)
+	else:
+		_apply_pause_state.rpc(not GameManager.dev_paused)
+
+@rpc("any_peer", "reliable")
+func _request_toggle_pause_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_apply_pause_state.rpc(not GameManager.dev_paused)
+
+@rpc("authority", "reliable", "call_local")
+func _apply_pause_state(paused: bool) -> void:
+	GameManager.set_dev_pause(paused)
+	get_tree().paused = paused
+	if paused:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_update_pause_ui()
+
+func _request_respawn_from_checkpoint() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_respawn_rpc.rpc_id(1)
+	else:
+		_apply_respawn.rpc()
+
+@rpc("any_peer", "reliable")
+func _request_respawn_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	if not GameManager.has_checkpoint():
+		return
+	_apply_respawn.rpc()
+
+@rpc("authority", "reliable", "call_local")
+func _apply_respawn() -> void:
+	_start_fade_and_respawn()
+
+func _start_fade_and_respawn() -> void:
+	_fade_rect.visible = true
+	_fade_rect.modulate.a = 1.0
+	_do_respawn_now()
+	await get_tree().create_timer(1.0).timeout
+	_fade_rect.modulate.a = 0.0
+	_fade_rect.visible = false
+
+func _do_respawn_now() -> void:
+	if not GameManager.has_checkpoint():
+		return
+	var blind = get_node_or_null("BlindPlayer")
+	var lame = get_node_or_null("LamePlayer")
+	if blind:
+		blind.global_position = GameManager.checkpoint_data.get("blind_pos", blind.global_position)
+	if lame:
+		lame.global_position = GameManager.checkpoint_data.get("lame_pos", lame.global_position)
+	GameManager.apply_checkpoint_state()
+	_reset_ghosts_to_spawn()
+
+func _reset_ghosts_to_spawn() -> void:
+	for g in get_tree().get_nodes_in_group("ghost_ai"):
+		var ghost := g as Node3D
+		var reset_pos := _ghost_spawn_positions.get(ghost.get_path(), ghost.global_position)
+		if ghost.has_method("reset_to_initial_state"):
+			ghost.reset_to_initial_state(reset_pos)
+		elif ghost.has_method("reset_ai_state"):
+			ghost.reset_ai_state(reset_pos)
+		else:
+			ghost.global_position = reset_pos
+
+func _save_checkpoint_now() -> void:
+	var blind = get_node_or_null("BlindPlayer")
+	var lame = get_node_or_null("LamePlayer")
+	if blind == null or lame == null:
+		return
+	GameManager.save_checkpoint(blind.global_position, lame.global_position)
+
+func notify_checkpoint_reached(_checkpoint_node: Node) -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_save_checkpoint_rpc.rpc_id(1)
+	else:
+		_save_checkpoint_now()
+
+@rpc("any_peer", "reliable")
+func _request_save_checkpoint_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_save_checkpoint_now()
+
+func _on_dev_invincible_changed(enabled: bool) -> void:
+	if _dev_label:
+		_dev_label.visible = enabled
+
+func _setup_demo_ui() -> void:
+	_ui_layer = CanvasLayer.new()
+	_ui_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_ui_layer)
+
+	_fade_rect = ColorRect.new()
+	_fade_rect.anchors_preset = Control.PRESET_FULL_RECT
+	_fade_rect.color = Color(0, 0, 0, 1)
+	_fade_rect.visible = false
+	_ui_layer.add_child(_fade_rect)
+
+	_dev_label = Label.new()
+	_dev_label.text = "[DEV]"
+	_dev_label.position = Vector2(8, 8)
+	_dev_label.modulate = Color(1, 0.3, 0.3, 0.9)
+	_dev_label.visible = GameManager.dev_invincible
+	_ui_layer.add_child(_dev_label)
+
+	_pause_panel = PanelContainer.new()
+	_pause_panel.visible = false
+	_pause_panel.size = Vector2(260, 180)
+	_pause_panel.position = Vector2(20, 40)
+	_pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	_ui_layer.add_child(_pause_panel)
+
+	var vb := VBoxContainer.new()
+	_pause_panel.add_child(vb)
+
+	var title := Label.new()
+	title.text = "暂停"
+	vb.add_child(title)
+
+	var btn_resume := Button.new()
+	btn_resume.text = "继续游戏"
+	btn_resume.pressed.connect(func() -> void: _request_toggle_pause())
+	vb.add_child(btn_resume)
+
+	var btn_retry := Button.new()
+	btn_retry.text = "从存档点重试"
+	btn_retry.pressed.connect(func() -> void:
+		_request_respawn_from_checkpoint()
+		if GameManager.dev_paused:
+			_request_toggle_pause()
+	)
+	vb.add_child(btn_retry)
+
+	var btn_lobby := Button.new()
+	btn_lobby.text = "返回大厅"
+	btn_lobby.pressed.connect(func() -> void: _request_return_lobby())
+	vb.add_child(btn_lobby)
+
+func _update_pause_ui() -> void:
+	if _pause_panel:
+		_pause_panel.visible = GameManager.dev_paused
+
+func _request_return_lobby() -> void:
+	if NetworkManager.is_multiplayer_game:
+		_request_return_lobby_rpc.rpc_id(1)
+	else:
+		_apply_return_lobby.rpc()
+
+@rpc("any_peer", "reliable")
+func _request_return_lobby_rpc() -> void:
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if NetworkManager.is_multiplayer_game:
+		var sender_id := multiplayer.get_remote_sender_id()
+		if not NetworkManager.is_trusted_sender(sender_id):
+			return
+	_apply_return_lobby.rpc()
+
+@rpc("authority", "reliable", "call_local")
+func _apply_return_lobby() -> void:
+	GameManager.set_dev_pause(false)
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+
+func _ensure_checkpoint_trigger() -> void:
+	var existing := get_node_or_null("Checkpoint")
+	if existing != null:
+		return
+	var area := Area3D.new()
+	area.name = "Checkpoint"
+	area.position = Vector3(0, 1.0, 0)
+	area.script = load("res://scripts/checkpoint_trigger.gd")
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(2.5, 2.0, 2.5)
+	shape.shape = box
+	area.add_child(shape)
+	add_child(area)

@@ -27,6 +27,7 @@ var spot_light: SpotLight3D = null
 # 初始化函数
 func _ready() -> void:
 	print("[BlindPlayer] _ready: is_local=", is_local)
+	add_to_group("player")
 	# [新增] 远程玩家：禁用相机和UI，不处理任何逻辑
 	if not is_local:
 		camera.current = false

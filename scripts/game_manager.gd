@@ -27,6 +27,11 @@ var puzzles_solved: int = 0
 var puzzles_required: int = 3
 var blind_medicines: int = 0
 var lame_painkillers: int = 0
+var checkpoint_data: Dictionary = {}
+
+# 开发者演示开关
+var dev_invincible: bool = false
+var dev_paused: bool = false
 
 # 游戏事件信号
 signal mental_health_changed(value: float)
@@ -34,6 +39,9 @@ signal pain_value_changed(value: float)
 signal game_over_triggered(won: bool)
 signal puzzle_solved(total: int)
 signal medicine_collected(role: int)
+signal checkpoint_saved()
+signal dev_invincible_changed(enabled: bool)
+signal dev_pause_changed(paused: bool)
 
 # 初始化函数
 func _ready() -> void:
@@ -48,10 +56,15 @@ func reset_game() -> void:
 	puzzles_solved = 0
 	blind_medicines = 0
 	lame_painkillers = 0
+	dev_invincible = false
+	dev_paused = false
+	checkpoint_data = {}
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
 	if is_game_over:
+		return
+	if dev_invincible:
 		return
 	mental_health = clampf(mental_health - mental_health_decay_rate * delta, 0.0, mental_health_max)
 	mental_health_changed.emit(mental_health)
@@ -98,6 +111,9 @@ func solve_puzzle() -> void:
 func trigger_game_over(won: bool) -> void:
 	if is_game_over:
 		return
+	# 上帝模式下仅忽略失败，不影响胜利流程
+	if dev_invincible and not won:
+		return
 	is_game_over = true
 	is_game_won = won
 	game_over_triggered.emit(won)
@@ -106,6 +122,36 @@ func trigger_game_over(won: bool) -> void:
 		_remote_game_over.rpc(won)
 	elif NetworkManager.is_multiplayer_game:
 		_request_game_over.rpc_id(1, won)
+
+func save_checkpoint(blind_pos: Vector3, lame_pos: Vector3) -> void:
+	checkpoint_data = {
+		"blind_pos": blind_pos,
+		"lame_pos": lame_pos,
+		"mental_health": mental_health,
+		"pain_value": pain_value
+	}
+	checkpoint_saved.emit()
+
+func has_checkpoint() -> bool:
+	return checkpoint_data.has("blind_pos") and checkpoint_data.has("lame_pos")
+
+func apply_checkpoint_state() -> void:
+	if not has_checkpoint():
+		return
+	mental_health = checkpoint_data.get("mental_health", mental_health_max)
+	pain_value = checkpoint_data.get("pain_value", 0.0)
+	is_game_over = false
+	is_game_won = false
+	mental_health_changed.emit(mental_health)
+	pain_value_changed.emit(pain_value)
+
+func set_dev_invincible(enabled: bool) -> void:
+	dev_invincible = enabled
+	dev_invincible_changed.emit(enabled)
+
+func set_dev_pause(paused: bool) -> void:
+	dev_paused = paused
+	dev_pause_changed.emit(paused)
 
 # [新增] 远程游戏结束 RPC
 @rpc("authority", "reliable", "call_remote")

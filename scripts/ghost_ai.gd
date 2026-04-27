@@ -34,6 +34,7 @@ var is_host_controlled: bool = true
 
 # 初始化函数
 func _ready() -> void:
+	add_to_group("ghost_ai")
 	patrol_pts = [
 		Vector3(-6, 1, -6), Vector3(6, 1, -6),
 		Vector3(6, 1, 6), Vector3(-6, 1, 6),
@@ -159,3 +160,14 @@ func _check_detect() -> void:
 func _next_patrol() -> void:
 	patrol_idx = (patrol_idx + 1) % patrol_pts.size()
 	target_pos = patrol_pts[patrol_idx]
+
+func reset_ai_state(reset_pos: Vector3) -> void:
+	global_position = reset_pos
+	velocity = Vector3.ZERO
+	state = ST_PATROL
+	wait_timer = 0.0
+	blind_target = null
+	_next_patrol()
+
+func reset_to_initial_state(reset_pos: Vector3) -> void:
+	reset_ai_state(reset_pos)

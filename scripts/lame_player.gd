@@ -27,6 +27,7 @@ var _carry_anchor_ref: Node3D = null
 # 初始化函数
 func _ready() -> void:
 	print("[LamePlayer] _ready: is_local=", is_local)
+	add_to_group("player")
 	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
 	collision_layer = 0
 	collision_mask = 0
