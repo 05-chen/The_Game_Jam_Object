@@ -3,6 +3,8 @@
 # [已修改] 远程玩家禁用相机和UI，仅接收旋转同步
 # [已修改] 本地玩家每帧广播旋转和疼痛值
 # [修复] 瘸子世界坐标始终跟随瞎子，不独立移动
+# TODO (Network Optimization): 待优化 - 增加远端状态快照队列与插值/缓冲，进一步平滑高延迟下的旋转与表现层同步。
+# TODO (Network Optimization): 待优化 - 统一交互链路为“客户端请求 -> Authority 校验 -> 全局广播结果”，避免未来交互对象出现本地先行生效。
 
 extends CharacterBody3D
 
@@ -11,8 +13,8 @@ extends CharacterBody3D
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
 var is_local: bool = false
 
-# [新增] 瞎子玩家引用 - 用于位置跟随
-var _blind_ref: Node3D = null
+# [新增] 背负锚点引用 - 用于强制跟随 BlindPlayer/CarryAnchor
+var _carry_anchor_ref: Node3D = null
 
 # 场景节点引用
 @onready var camera: Camera3D = $Camera3D
@@ -25,6 +27,13 @@ var _blind_ref: Node3D = null
 # 初始化函数
 func _ready() -> void:
 	print("[LamePlayer] _ready: is_local=", is_local)
+	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
+	collision_layer = 0
+	collision_mask = 0
+	if has_node("Col"):
+		$Col.set_deferred("disabled", true)
+	# 预缓存 CarryAnchor 引用
+	_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
 	if not is_local:
 		# 远程玩家：禁用摄像机，防止抢夺视野 
 		camera.current = false
@@ -35,8 +44,11 @@ func _ready() -> void:
 	
 	# ── 仅本地玩家执行 ──
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# 寻找本地瞎子引用以便跟随
-	_blind_ref = get_parent().get_node_or_null("BlindPlayer")
+	GameManager.pain_value_changed.connect(_on_pain)
+	GameManager.game_over_triggered.connect(_on_over)
+	GameManager.medicine_collected.connect(_on_med)
+	GameManager.puzzle_solved.connect(_on_puzzle)
+	_on_pain(GameManager.pain_value)
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
@@ -53,28 +65,24 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	# 1. 核心保护：如果不是本地玩家，绝对不执行任何计算逻辑
-	# 远程实体的位置和旋转完全交给下面的 RPC 函数来被动修改
+	# 1. 每帧强制跟随 BlindPlayer/CarryAnchor（本地与远程都执行）
+	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
+		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
+	if _carry_anchor_ref and is_instance_valid(_carry_anchor_ref):
+		global_transform = _carry_anchor_ref.global_transform
+
+	# 2. 远程实体不执行本地输入/状态逻辑
 	if not is_local:
 		return
-		
-	# 2. 游戏状态检查
+
+	# 3. 游戏状态检查
 	if GameManager.is_game_over:
 		return
-
-	# 3. 核心跟随逻辑（仅本地瘸子执行）
-	# 确保自己始终粘在瞎子身上
-	if _blind_ref == null or not is_instance_valid(_blind_ref):
-		_blind_ref = get_node_or_null("../BlindPlayer")
-		
-	if _blind_ref and is_instance_valid(_blind_ref):
-		global_position = _blind_ref.global_position
 
 	# 4. 状态更新
 	GameManager.update_pain(delta)
 	
-	# 5. 多人同步：广播自己的状态
-	# 我们只广播旋转（Y轴身子，X轴相机）和疼痛值
+	# 5. 多人同步：仅广播旋转和疼痛值（不做位移同步）
 	if NetworkManager.is_multiplayer_game:
 		_sync_lame.rpc(rotation.y, camera.rotation.x, GameManager.pain_value)
 
@@ -106,8 +114,20 @@ func _sync_lame(rot_y: float, cam_x: float, pain: float) -> void:
 func _on_pain(value: float) -> void:
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
-	var voice_pct = int(GameManager.get_voice_multiplier() * 100)
-	voice_label.text = "语音音量: " + str(voice_pct) + "% | 常开麦"
+	var voice_mul := GameManager.get_voice_multiplier_from_pain(value)
+	var voice_pct := int(voice_mul * 100.0)
+	if value >= 80.0:
+		voice_label.text = "语音状态: 失效 (>=80)"
+	elif value >= 40.0:
+		voice_label.text = "语音音量: " + str(voice_pct) + "% | 疼痛衰减"
+	else:
+		voice_label.text = "语音音量: 100% | 常开麦"
+
+	if is_local:
+		VoiceChatManager.set_local_pain_voice_policy(value)
+	else:
+		VoiceChatManager.set_remote_pain_voice_policy(value)
+
 	if value > 60.0:
 		var intensity = (value - 60.0) / 40.0 * 0.3
 		pain_overlay.color = Color(1, 0, 0, intensity)

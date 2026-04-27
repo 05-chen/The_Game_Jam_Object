@@ -2,6 +2,8 @@
 # [已修改] 增加 is_local 标记，区分本地/远程
 # [已修改] 远程玩家禁用相机和UI，仅接收位置同步
 # [已修改] 本地玩家每帧广播位置和心理值
+# TODO (Network Optimization): 待优化 - 增加网络快照队列与插值/缓冲（lerp），降低网络抖动导致的远端视觉抽搐。
+# TODO (Network Optimization): 待优化 - 将 interact 统一为“客户端请求 -> Authority 校验 -> 全局广播结果”的闭环链路。
 
 extends CharacterBody3D
 
@@ -90,25 +92,55 @@ func _physics_process(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, 0.0, move_speed)
 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
 	move_and_slide()
-	# 更新心理值
-	GameManager.update_mental_health(delta)
-	# [新增] 多人同步：广播位置 + 旋转 + 心理值
-	# [修复] 使用 is_multiplayer_game 标记
-	if NetworkManager.is_multiplayer_game:
-		_sync_state.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
 
-# [新增] 位置和状态同步 RPC - 远程玩家接收
-@rpc("any_peer", "unreliable_ordered", "call_remote")
-func _sync_state(pos: Vector3, rot_y: float, cam_x: float, mh: float) -> void:
-	if NetworkManager.is_multiplayer_game:
-		var sender_id = multiplayer.get_remote_sender_id()
-		if not NetworkManager.is_trusted_sender(sender_id):
-			return
+	# 单机：本地直接结算心理值
+	if not NetworkManager.is_multiplayer_game:
+		GameManager.update_mental_health(delta)
+		return
+
+	# 联机闭环：
+	# 1) 客户端仅上报瞎子状态给 Authority
+	# 2) Authority 统一结算心理值并广播最终状态
+	if multiplayer.is_server():
+		GameManager.update_mental_health(delta)
+		_apply_authority_blind_state.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
+	else:
+		_request_blind_state.rpc_id(1, global_position, rotation.y, camera.rotation.x)
+
+# 客户端上报瞎子状态给 Authority（不允许客户端直接写心理值）
+@rpc("any_peer", "unreliable_ordered")
+func _request_blind_state(pos: Vector3, rot_y: float, cam_x: float) -> void:
+	if not NetworkManager.is_multiplayer_game:
+		return
+	if not multiplayer.is_server():
+		return
+	var sender_id = multiplayer.get_remote_sender_id()
+	if not NetworkManager.is_trusted_sender(sender_id):
+		return
+
+	# Authority 侧做基础位移约束，防止异常瞬移包污染全局状态
+	var max_step := move_speed * 0.2
+	var requested_pos := pos
+	var delta_len := global_position.distance_to(requested_pos)
+	if delta_len > max_step:
+		var dir := (requested_pos - global_position).normalized()
+		requested_pos = global_position + dir * max_step
+
+	global_position = requested_pos
+	rotation.y = rot_y
+	if camera:
+		camera.rotation.x = cam_x
+
+	GameManager.update_mental_health(get_physics_process_delta_time())
+	_apply_authority_blind_state.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
+
+# Authority 广播最终瞎子状态（位置/朝向/心理值）
+@rpc("authority", "unreliable_ordered", "call_remote")
+func _apply_authority_blind_state(pos: Vector3, rot_y: float, cam_x: float, mh: float) -> void:
 	global_position = pos
 	rotation.y = rot_y
 	if camera:
 		camera.rotation.x = cam_x
-	# 同步心理值到远程机器（供 Ghost AI 等使用）
 	GameManager.mental_health = mh
 	GameManager.mental_health_changed.emit(mh)
 

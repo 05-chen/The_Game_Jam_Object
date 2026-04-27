@@ -18,8 +18,14 @@ var _remote_generator: AudioStreamGenerator = null
 var _remote_playback: AudioStreamGeneratorPlayback = null
 var _remote_pcm_buffer: PackedByteArray = PackedByteArray()
 var _remote_read_idx: int = 0
+var _remote_volume_multiplier: float = 1.0
 
 func _ready() -> void:
+	# 只允许 Autoload 单例实例运行语音主循环，避免场景内重复 VoiceCore 造成双录音/双播放
+	if self != VoiceChatManager:
+		process_mode = Node.PROCESS_MODE_DISABLED
+		set_process(false)
+		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# 确保 Steam 初始化后再设置语音
 	call_deferred("_setup_voice")
@@ -31,6 +37,8 @@ func _setup_voice() -> void:
 func _process(_delta: float) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		if _is_recording: _set_recording(false)
+		_remote_volume_multiplier = 1.0
+		is_disabled_by_pain = false
 		return
 
 	_update_recording_state()
@@ -77,6 +85,19 @@ func _set_recording(enable: bool) -> void:
 	else:
 		Steam.stopVoiceRecording()
 
+func set_local_pain_voice_policy(pain: float) -> void:
+	# 规则：>=80 禁言；40~80 保持可录音，由远端播放增益做衰减体现
+	is_disabled_by_pain = pain >= 80.0
+
+func set_remote_pain_voice_policy(pain: float) -> void:
+	# 规则：40~80 线性衰减；>=80 完全静音
+	if pain >= 80.0:
+		_remote_volume_multiplier = 0.0
+	elif pain >= 40.0:
+		_remote_volume_multiplier = GameManager.get_voice_multiplier_from_pain(pain)
+	else:
+		_remote_volume_multiplier = 1.0
+
 func _poll_and_send_local_voice() -> void:
 	for _i in range(LOCAL_PACKET_READ_LIMIT):
 		var voice_data: Dictionary = Steam.getVoice()
@@ -107,8 +128,7 @@ func _consume_remote_audio_frames() -> void:
 
 	var frames_available: int = _remote_playback.get_frames_available()
 	
-	# 这里假设你以后可能需要全局音量控制
-	var volume_mul: float = 1.0
+	var volume_mul: float = _remote_volume_multiplier
 
 	while frames_available > 0 and _remote_read_idx + 1 < _remote_pcm_buffer.size():
 		var lo: int = _remote_pcm_buffer[_remote_read_idx]

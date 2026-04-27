@@ -128,3 +128,7 @@ func _request_game_over(won: bool) -> void:
 # 获取语音音量乘数函数
 func get_voice_multiplier() -> float:
 	return 1.0 - (pain_value / pain_max)
+
+# 根据指定疼痛值计算语音音量乘数（用于联机同步显示/播放）
+func get_voice_multiplier_from_pain(pain: float) -> float:
+	return clampf(1.0 - (pain / pain_max), 0.0, 1.0)
