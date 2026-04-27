@@ -291,7 +291,7 @@ func _do_respawn_now() -> void:
 func _reset_ghosts_to_spawn() -> void:
 	for g in get_tree().get_nodes_in_group("ghost_ai"):
 		var ghost := g as Node3D
-		var reset_pos := _ghost_spawn_positions.get(ghost.get_path(), ghost.global_position)
+		var reset_pos: Vector3 = _ghost_spawn_positions.get(ghost.get_path(), ghost.global_position) as Vector3
 		if ghost.has_method("reset_to_initial_state"):
 			ghost.reset_to_initial_state(reset_pos)
 		elif ghost.has_method("reset_ai_state"):
