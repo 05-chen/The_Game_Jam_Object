@@ -12,12 +12,17 @@ var invite_code: String = ""
 var is_host: bool = false
 var guest_connected: bool = false
 var remote_peer_id: int = 0
+var remote_steam_id: int = 0
 var _steam_ok: bool = false
 var is_multiplayer_game: bool = false
 var steam_name: String = "" # 添加这一行
 var _join_watch_active: bool = false
 var _join_deadline_ms: int = 0
-const CONNECT_TIMEOUT_MS: int = 10000
+var _lobby_query_mode: String = ""
+var _join_search_token: int = 0
+var _cleanup_in_progress: bool = false
+const CONNECT_TIMEOUT_MS: int = 20000
+const LOBBY_SYNC_DELAY_SEC: float = 1.0
 
 # ── 信号 ──
 signal player_connected()
@@ -106,8 +111,15 @@ func _on_lobby_created(result: int, this_lobby_id: int) -> void:
 		return
 	lobby_id = this_lobby_id
 	var set_code_ok := Steam.setLobbyData(lobby_id, "invite_code", invite_code)
+	var set_code_alias_ok := Steam.setLobbyData(lobby_id, "code", invite_code)
 	var set_game_ok := Steam.setLobbyData(lobby_id, "game_name", "blind_and_lame")
-	print("[Net] lobby data set game_name=blind_and_lame invite_code=", invite_code, " set_code_ok=", set_code_ok, " set_game_ok=", set_game_ok)
+	Steam.setLobbyData(lobby_id, "ready", "0")
+	print("[Net] lobby data set game_name=blind_and_lame invite_code=", invite_code, " set_code_ok=", set_code_ok, " set_code_alias_ok=", set_code_alias_ok, " set_game_ok=", set_game_ok)
+	get_tree().create_timer(LOBBY_SYNC_DELAY_SEC).timeout.connect(func() -> void:
+		if lobby_id == this_lobby_id:
+			var ready_ok := Steam.setLobbyData(lobby_id, "ready", "1")
+			print("[Net] lobby ready flag set after delay, ready_ok=", ready_ok, " delay_sec=", LOBBY_SYNC_DELAY_SEC)
+	, CONNECT_ONE_SHOT)
 	peer = SteamMultiplayerPeer.new()
 	var host_err := peer.create_host(0)
 	print("[Net] create_host err=", host_err)
@@ -122,11 +134,14 @@ func join_room_by_code(code: String) -> bool:
 	if not _steam_ok: return false
 	invite_code = code.to_upper()
 	is_host = false
+	_join_search_token += 1
+	var token := _join_search_token
 	print("[Net] join_room_by_code() code=", invite_code)
 	_start_join_watch("search_lobby")
-	Steam.addRequestLobbyListStringFilter("game_name", "blind_and_lame", Steam.LOBBY_COMPARISON_EQUAL)
-	Steam.addRequestLobbyListStringFilter("invite_code", invite_code, Steam.LOBBY_COMPARISON_EQUAL)
-	Steam.requestLobbyList()
+	print("[Net] wait ", LOBBY_SYNC_DELAY_SEC, "s before search for Steam data sync")
+	get_tree().create_timer(LOBBY_SYNC_DELAY_SEC).timeout.connect(func() -> void:
+		_request_lobby_list_primary(token)
+	, CONNECT_ONE_SHOT)
 	return true
 
 # 【核心修复 4】参数名前加下划线，解决 "The parameter 'ip' is never used" 警告
@@ -134,16 +149,52 @@ func join_room(_ip: String, code: String) -> bool:
 	return join_room_by_code(code)
 
 func _on_lobby_match_list(lobbies: Array) -> void:
-	print("[Net] _on_lobby_match_list count=", lobbies.size())
 	if is_host:
 		return
-	if lobbies.size() == 0:
+	if _lobby_query_mode == "debug_dump":
+		print("[Net][DebugDump] total_lobbies=", lobbies.size(), " (worldwide)")
+		if lobbies.is_empty():
+			print("[Net][DebugDump] no lobbies found in worldwide snapshot")
+		for lobby in lobbies:
+			var code_value := String(Steam.getLobbyData(lobby, "code")).to_upper()
+			var invite_code_value := String(Steam.getLobbyData(lobby, "invite_code")).to_upper()
+			var game_value := String(Steam.getLobbyData(lobby, "game_name"))
+			print("[Net][DebugDump] lobby_id=", lobby, " code=", code_value, " invite_code=", invite_code_value, " game_name=", game_value)
+		_lobby_query_mode = ""
+		_stop_join_watch()
 		lobby_search_result.emit(false, 0)
 		connection_failed.emit()
 		return
-	lobby_search_result.emit(true, lobbies.size())
+
+	print("[Net] _on_lobby_match_list count=", lobbies.size(), " mode=", _lobby_query_mode)
+	if lobbies.size() == 0:
+		print("[Net][Warn] filtered result is empty, trigger worldwide debug snapshot")
+		_request_lobby_list_debug_dump()
+		return
+
+	var matched_lobby_id: int = 0
+	for lobby in lobbies:
+		var code_value: String = String(Steam.getLobbyData(lobby, "code")).to_upper()
+		var invite_code_value: String = String(Steam.getLobbyData(lobby, "invite_code")).to_upper()
+		var game_value: String = String(Steam.getLobbyData(lobby, "game_name"))
+		var ready_value: String = String(Steam.getLobbyData(lobby, "ready"))
+		print("[Net] lobby candidate id=", lobby, " game_name=", game_value, " code=", code_value, " invite_code=", invite_code_value, " ready=", ready_value)
+		if ready_value != "1":
+			print("[Net] skip lobby id=", lobby, " because ready != 1")
+			continue
+		if game_value == "blind_and_lame" and (code_value == invite_code or invite_code_value == invite_code):
+			matched_lobby_id = lobby
+			break
+
+	if matched_lobby_id == 0:
+		print("[Net][Error] no matched lobby for invite_code=", invite_code)
+		_request_lobby_list_debug_dump()
+		return
+
+	_lobby_query_mode = ""
+	lobby_search_result.emit(true, 1)
 	_start_join_watch("join_lobby")
-	Steam.joinLobby(lobbies[0])
+	Steam.joinLobby(matched_lobby_id)
 
 func _on_lobby_joined(this_lobby_id: int, _permissions: int, _locked: bool, response: int) -> void:
 	print("[Net] _on_lobby_joined response=", response, " lobby_id=", this_lobby_id)
@@ -154,6 +205,7 @@ func _on_lobby_joined(this_lobby_id: int, _permissions: int, _locked: bool, resp
 	lobby_id = this_lobby_id
 	if not is_host:
 		var host_steam_id = Steam.getLobbyOwner(lobby_id)
+		remote_steam_id = host_steam_id
 		print("[Net] join as client, host_steam_id=", host_steam_id)
 		peer = SteamMultiplayerPeer.new()
 		var client_err := peer.create_client(host_steam_id, 0)
@@ -166,12 +218,37 @@ func _on_lobby_joined(this_lobby_id: int, _permissions: int, _locked: bool, resp
 		multiplayer.multiplayer_peer = peer
 
 func close_room() -> void:
+	hard_cleanup("close_room")
+
+func hard_cleanup(reason: String = "manual") -> void:
+	if _cleanup_in_progress:
+		return
+	_cleanup_in_progress = true
+	print("[Net] hard_cleanup reason=", reason)
+	
 	_stop_join_watch()
 	is_multiplayer_game = false
-	if lobby_id != 0: Steam.leaveLobby(lobby_id)
+	_close_steam_p2p_session()
+	if peer and peer.has_method("close"):
+		peer.close()
+	if lobby_id != 0:
+		Steam.leaveLobby(lobby_id)
 	multiplayer.multiplayer_peer = null
+	if VoiceChatManager:
+		if VoiceChatManager.has_method("stop_voice_capture"):
+			VoiceChatManager.stop_voice_capture("close_room")
+		elif VoiceChatManager.has_method("shutdown_voice"):
+			VoiceChatManager.shutdown_voice("close_room")
 	peer = null
+	lobby_id = 0
+	invite_code = ""
+	is_host = false
+	guest_connected = false
 	remote_peer_id = 0
+	remote_steam_id = 0
+	_lobby_query_mode = ""
+	_join_search_token += 1
+	_cleanup_in_progress = false
 
 func _on_peer_connected(id: int) -> void:
 	remote_peer_id = id
@@ -186,6 +263,8 @@ func _on_peer_disconnected(_id: int) -> void:
 	print("[Net] _on_peer_disconnected id=", _id, " is_host=", is_host, " local_peer_id=", multiplayer.get_unique_id(), " lobby_id=", lobby_id, " remote_peer_id(before_clear)=", remote_peer_id)
 	if is_host: guest_connected = false
 	remote_peer_id = 0
+	if not is_host and is_multiplayer_game:
+		hard_cleanup("peer_disconnected_guest")
 	player_disconnected.emit()
 
 func _on_connected_to_server() -> void:
@@ -197,7 +276,7 @@ func _on_connected_to_server() -> void:
 func _on_connection_failed() -> void:
 	_stop_join_watch()
 	print("[Net] _on_connection_failed is_host=", is_host, " lobby_id=", lobby_id, " steam_ok=", _steam_ok, " remote_peer_id=", remote_peer_id, " invite_code=", invite_code)
-	close_room()
+	hard_cleanup("connection_failed")
 	connection_failed.emit()
 
 @rpc("any_peer", "reliable")
@@ -230,6 +309,8 @@ func _receive_voice_packet(packet: PackedByteArray) -> void:
 @rpc("authority", "reliable", "call_local")
 func start_game_all(host_role: int) -> void:
 	is_multiplayer_game = true
+	if VoiceChatManager and VoiceChatManager.has_method("startup_voice"):
+		VoiceChatManager.startup_voice("start_game_all")
 	if multiplayer.is_server():
 		GameManager.current_role = host_role
 	else:
@@ -263,3 +344,34 @@ func _stop_join_watch() -> void:
 		print("[Net] stop join watch")
 	_join_watch_active = false
 	_join_deadline_ms = 0
+
+func _request_lobby_list_primary(token: int) -> void:
+	if token != _join_search_token:
+		return
+	if is_host:
+		return
+	_lobby_query_mode = "primary"
+	Steam.addRequestLobbyListDistanceFilter(Steam.LOBBY_DISTANCE_FILTER_WORLDWIDE)
+	Steam.addRequestLobbyListStringFilter("game_name", "blind_and_lame", Steam.LOBBY_COMPARISON_EQUAL)
+	print("[Net] requestLobbyList primary worldwide search, token=", token)
+	Steam.requestLobbyList()
+
+func _request_lobby_list_debug_dump() -> void:
+	_lobby_query_mode = "debug_dump"
+	Steam.addRequestLobbyListDistanceFilter(Steam.LOBBY_DISTANCE_FILTER_WORLDWIDE)
+	print("[Net] requestLobbyList debug worldwide snapshot")
+	Steam.requestLobbyList()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		hard_cleanup("wm_close")
+
+func _close_steam_p2p_session() -> void:
+	if remote_steam_id == 0:
+		return
+	if Steam.has_method("closeP2PSessionWithUser"):
+		Steam.call("closeP2PSessionWithUser", remote_steam_id)
+		print("[Net] closeP2PSessionWithUser remote_steam_id=", remote_steam_id)
+	elif Steam.has_method("closeP2PSession"):
+		Steam.call("closeP2PSession", remote_steam_id)
+		print("[Net] closeP2PSession remote_steam_id=", remote_steam_id)

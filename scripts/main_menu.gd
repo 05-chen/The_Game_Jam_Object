@@ -5,6 +5,8 @@ extends Control
 
 # 初始化函数 - 场景加载时执行
 func _ready() -> void:
+	# 兜底：进入主菜单时强制清理联机残留，防止演示尾声异常
+	NetworkManager.hard_cleanup("enter_main_menu")
 	# 连接按钮信号
 	%BlindButton.pressed.connect(_on_blind)  # 瞎子角色按钮
 	%LameButton.pressed.connect(_on_lame)  # 瘸子角色按钮
@@ -38,5 +40,8 @@ func _on_multi() -> void:
 
 # 退出游戏函数
 func _on_quit() -> void:
-	# 退出游戏
+	# 退出前确保联机与语音彻底释放
+	NetworkManager.close_room()
+	if VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
+		VoiceChatManager.shutdown_voice("quit_game")
 	get_tree().quit()

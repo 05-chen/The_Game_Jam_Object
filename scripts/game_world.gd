@@ -240,6 +240,8 @@ func _request_toggle_pause_rpc() -> void:
 func _apply_pause_state(paused: bool) -> void:
 	GameManager.set_dev_pause(paused)
 	get_tree().paused = paused
+	if paused and VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
+		VoiceChatManager.shutdown_voice("pause_game")
 	if paused:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
@@ -248,7 +250,12 @@ func _apply_pause_state(paused: bool) -> void:
 
 func _request_respawn_from_checkpoint() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_respawn_rpc.rpc_id(1)
+		# Host 端不能对自己发 rpc_id(1)，直接走本地 Authority 流程
+		if multiplayer.is_server():
+			if GameManager.has_checkpoint():
+				_apply_respawn.rpc()
+		else:
+			_request_respawn_rpc.rpc_id(1)
 	else:
 		_apply_respawn.rpc()
 

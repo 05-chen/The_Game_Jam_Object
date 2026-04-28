@@ -19,6 +19,7 @@ var _remote_playback: AudioStreamGeneratorPlayback = null
 var _remote_pcm_buffer: PackedByteArray = PackedByteArray()
 var _remote_read_idx: int = 0
 var _remote_volume_multiplier: float = 1.0
+var _runtime_enabled: bool = true
 
 func _ready() -> void:
 	# 只允许 Autoload 单例实例运行语音主循环，避免场景内重复 VoiceCore 造成双录音/双播放
@@ -35,6 +36,10 @@ func _setup_voice() -> void:
 	_setup_remote_audio_player()
 
 func _process(_delta: float) -> void:
+	if not _runtime_enabled:
+		if _is_recording:
+			_set_recording(false)
+		return
 	if not NetworkManager.is_multiplayer_game:
 		if _is_recording: _set_recording(false)
 		_remote_volume_multiplier = 1.0
@@ -84,6 +89,32 @@ func _set_recording(enable: bool) -> void:
 		Steam.startVoiceRecording()
 	else:
 		Steam.stopVoiceRecording()
+
+func stop_voice_capture(reason: String = "") -> void:
+	shutdown_voice(reason if reason != "" else "stop_voice_capture")
+
+func shutdown_voice(reason: String = "") -> void:
+	if not _runtime_enabled and not _is_recording:
+		return
+	print("[Voice] shutdown_voice reason=", reason)
+	_runtime_enabled = false
+	if _is_recording:
+		_set_recording(false)
+	_remote_pcm_buffer.clear()
+	_remote_read_idx = 0
+	_remote_volume_multiplier = 0.0
+	is_disabled_by_pain = false
+	if _remote_player and _remote_player.playing:
+		_remote_player.stop()
+
+func startup_voice(reason: String = "") -> void:
+	if _runtime_enabled:
+		return
+	print("[Voice] startup_voice reason=", reason)
+	_runtime_enabled = true
+	_remote_volume_multiplier = 1.0
+	if _remote_player and not _remote_player.playing:
+		_remote_player.play()
 
 func set_local_pain_voice_policy(pain: float) -> void:
 	# 规则：>=80 禁言；40~80 保持可录音，由远端播放增益做衰减体现
