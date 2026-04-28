@@ -26,7 +26,7 @@ var spot_light: SpotLight3D = null
 
 # 初始化函数
 func _ready() -> void:
-	print("[BlindPlayer] _ready: is_local=", is_local)
+	print("[BlindPlayer] _ready: is_local=", is_local, " current_role=", GameManager.current_role)
 	add_to_group("player")
 	# [新增] 远程玩家：禁用相机和UI，不处理任何逻辑
 	if not is_local:
@@ -38,6 +38,10 @@ func _ready() -> void:
 		return
 
 	# ── 以下仅本地玩家执行 ──
+	# 双保险：只有本地且身份确认为盲人时才启用盲人视觉逻辑
+	if GameManager.current_role != GameManager.ROLE_BLIND:
+		camera.current = false
+		return
 	camera.current = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GameManager.mental_health_changed.connect(_on_health)

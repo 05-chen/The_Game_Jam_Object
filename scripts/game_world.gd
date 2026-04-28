@@ -34,7 +34,7 @@ func _build_room() -> void:
 
 func _spawn_players() -> void:
 	var is_mp = NetworkManager.is_multiplayer_game
-	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人")
+	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人", " current_role=", GameManager.current_role, " peer_id=", multiplayer.get_unique_id())
 
 	if not is_mp:
 		# ── 单人模式保持不变 ──
@@ -56,6 +56,7 @@ func _spawn_players() -> void:
 		# 这样当节点进入场景树触发 _ready 时，它已经知道自己是本地还是远程了
 		blind.is_local = (GameManager.current_role == GameManager.ROLE_BLIND)
 		lame.is_local = (GameManager.current_role == GameManager.ROLE_LAME)
+		print("[GameWorld] player role map: blind.is_local=", blind.is_local, " lame.is_local=", lame.is_local)
 
 		# 将节点添加进场景
 		add_child(blind)

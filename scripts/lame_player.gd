@@ -26,7 +26,7 @@ var _carry_anchor_ref: Node3D = null
 
 # 初始化函数
 func _ready() -> void:
-	print("[LamePlayer] _ready: is_local=", is_local)
+	print("[LamePlayer] _ready: is_local=", is_local, " current_role=", GameManager.current_role)
 	add_to_group("player")
 	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
 	collision_layer = 0
@@ -44,6 +44,12 @@ func _ready() -> void:
 		return
 	
 	# ── 仅本地玩家执行 ──
+	# 关键：本地瘸子必须显式激活自己的相机，避免启动顺序导致黑屏
+	camera.current = true
+	camera.make_current()
+	# 确保瘸子侧不存在盲人视野遮罩残留
+	if pain_overlay:
+		pain_overlay.color = Color(1, 0, 0, 0)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GameManager.pain_value_changed.connect(_on_pain)
 	GameManager.game_over_triggered.connect(_on_over)
