@@ -7,6 +7,7 @@ extends Control
 # 状态变量
 var waiting_for_guest: bool = false  # 是否正在等待玩家加入
 var joined_room: bool = false  # 是否已加入房间
+var _error_dialog: AcceptDialog = null
 
 # 场景节点引用
 @onready var create_btn: Button = %CreateBtn
@@ -52,10 +53,13 @@ func _ready() -> void:
 	NetworkManager.connection_failed.connect(_on_conn_failed)
 	NetworkManager.connection_succeeded.connect(_on_conn_ok)
 	NetworkManager.code_verified.connect(_on_code_result)
+	NetworkManager.lobby_search_result.connect(_on_lobby_search_result)
+	NetworkManager.connection_timeout.connect(_on_connection_timeout)
 
 	# 初始化 UI
 	role_panel.visible = false
 	code_display.text = ""
+	_ensure_error_dialog()
 
 # 创建房间函数
 func _on_create() -> void:
@@ -101,6 +105,8 @@ func _on_conn_ok() -> void:
 # 连接失败处理函数
 func _on_conn_failed() -> void:
 	status_label.text = "连接失败 (未找到匹配房间或网络错误)"
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_error_popup("连接失败，请检查房间邀请码、Steam 在线状态或网络环境。")
 	_reset_ui()
 
 # 邀请码验证结果处理函数
@@ -116,6 +122,15 @@ func _on_code_result(ok: bool) -> void:
 		if not NetworkManager.is_host:
 			status_label.text = "邀请码错误!"
 			_reset_ui()
+
+func _on_lobby_search_result(found: bool, matched_count: int) -> void:
+	if found:
+		status_label.text = "找到房间 %d 个，正在加入..." % matched_count
+	else:
+		status_label.text = "未找到匹配邀请码的房间"
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_show_error_popup("未找到匹配邀请码的房间，请确认房主已创建成功。")
+		_reset_ui()
 
 # 选择瞎子角色函数
 func _on_pick_blind() -> void:
@@ -137,3 +152,22 @@ func _reset_ui() -> void:
 	code_input.editable = true
 	code_display.text = ""
 	role_panel.visible = false
+
+func _on_connection_timeout(message: String) -> void:
+	status_label.text = message
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_error_popup(message)
+	_reset_ui()
+
+func _ensure_error_dialog() -> void:
+	if _error_dialog != null:
+		return
+	_error_dialog = AcceptDialog.new()
+	_error_dialog.title = "连接提示"
+	_error_dialog.dialog_text = ""
+	add_child(_error_dialog)
+
+func _show_error_popup(message: String) -> void:
+	_ensure_error_dialog()
+	_error_dialog.dialog_text = message
+	_error_dialog.popup_centered()
