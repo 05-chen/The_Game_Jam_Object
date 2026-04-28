@@ -7,6 +7,7 @@ extends Control
 func _ready() -> void:
 	# 兜底：进入主菜单时强制清理联机残留，防止演示尾声异常
 	NetworkManager.hard_cleanup("enter_main_menu")
+	_show_interrupt_popup_if_needed()
 	# 连接按钮信号
 	%BlindButton.pressed.connect(_on_blind)  # 瞎子角色按钮
 	%LameButton.pressed.connect(_on_lame)  # 瘸子角色按钮
@@ -14,6 +15,16 @@ func _ready() -> void:
 	%QuitButton.pressed.connect(_on_quit)  # 退出按钮
 	# 显示鼠标
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _show_interrupt_popup_if_needed() -> void:
+	var msg := NetworkManager.consume_session_interrupt_message()
+	if msg == "":
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "联机提示"
+	dlg.dialog_text = msg
+	add_child(dlg)
+	dlg.popup_centered()
 
 # 选择瞎子角色函数
 func _on_blind() -> void:

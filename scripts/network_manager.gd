@@ -13,6 +13,7 @@ var is_host: bool = false
 var guest_connected: bool = false
 var remote_peer_id: int = 0
 var remote_steam_id: int = 0
+var remote_steam_ids: Dictionary = {}
 var _steam_ok: bool = false
 var is_multiplayer_game: bool = false
 var steam_name: String = "" # 添加这一行
@@ -33,6 +34,9 @@ signal code_verified(ok: bool)
 signal steam_init_failed()
 signal lobby_search_result(found: bool, matched_count: int)
 signal connection_timeout(message: String)
+signal session_interrupted(message: String)
+
+var _last_session_interrupt_message: String = ""
 
 func _ready() -> void:
 	_init_steam()
@@ -110,6 +114,7 @@ func _on_lobby_created(result: int, this_lobby_id: int) -> void:
 		connection_failed.emit()
 		return
 	lobby_id = this_lobby_id
+	_refresh_remote_steam_ids_from_lobby()
 	var set_code_ok := Steam.setLobbyData(lobby_id, "invite_code", invite_code)
 	var set_code_alias_ok := Steam.setLobbyData(lobby_id, "code", invite_code)
 	var set_game_ok := Steam.setLobbyData(lobby_id, "game_name", "blind_and_lame")
@@ -203,9 +208,11 @@ func _on_lobby_joined(this_lobby_id: int, _permissions: int, _locked: bool, resp
 		connection_failed.emit()
 		return
 	lobby_id = this_lobby_id
+	_refresh_remote_steam_ids_from_lobby()
 	if not is_host:
 		var host_steam_id = Steam.getLobbyOwner(lobby_id)
 		remote_steam_id = host_steam_id
+		remote_steam_ids[host_steam_id] = true
 		print("[Net] join as client, host_steam_id=", host_steam_id)
 		peer = SteamMultiplayerPeer.new()
 		var client_err := peer.create_client(host_steam_id, 0)
@@ -246,14 +253,16 @@ func hard_cleanup(reason: String = "manual") -> void:
 	guest_connected = false
 	remote_peer_id = 0
 	remote_steam_id = 0
+	remote_steam_ids.clear()
 	_lobby_query_mode = ""
 	_join_search_token += 1
 	_cleanup_in_progress = false
 
 func _on_peer_connected(id: int) -> void:
 	remote_peer_id = id
+	_refresh_remote_steam_ids_from_lobby()
 	_stop_join_watch()
-	print("[Net] _on_peer_connected id=", id, " is_host=", is_host, " local_peer_id=", multiplayer.get_unique_id(), " lobby_id=", lobby_id, " steam_id=", steam_id, " remote_peer_id=", remote_peer_id)
+	print("[Net] _on_peer_connected id=", id, " is_host=", is_host, " local_peer_id=", multiplayer.get_unique_id(), " lobby_id=", lobby_id, " steam_id=", steam_id, " remote_peer_id=", remote_peer_id, " remote_steam_ids=", remote_steam_ids.keys())
 	if is_host:
 		guest_connected = true
 		player_connected.emit()
@@ -264,6 +273,8 @@ func _on_peer_disconnected(_id: int) -> void:
 	if is_host: guest_connected = false
 	remote_peer_id = 0
 	if not is_host and is_multiplayer_game:
+		_last_session_interrupt_message = "联机连接已中断，已为你安全返回主菜单。"
+		session_interrupted.emit(_last_session_interrupt_message)
 		hard_cleanup("peer_disconnected_guest")
 	player_disconnected.emit()
 
@@ -276,6 +287,8 @@ func _on_connected_to_server() -> void:
 func _on_connection_failed() -> void:
 	_stop_join_watch()
 	print("[Net] _on_connection_failed is_host=", is_host, " lobby_id=", lobby_id, " steam_ok=", _steam_ok, " remote_peer_id=", remote_peer_id, " invite_code=", invite_code)
+	_last_session_interrupt_message = "联机连接失败，已为你安全清理网络状态。"
+	session_interrupted.emit(_last_session_interrupt_message)
 	hard_cleanup("connection_failed")
 	connection_failed.emit()
 
@@ -367,11 +380,39 @@ func _notification(what: int) -> void:
 		hard_cleanup("wm_close")
 
 func _close_steam_p2p_session() -> void:
-	if remote_steam_id == 0:
+	if remote_steam_ids.is_empty() and remote_steam_id == 0:
 		return
-	if Steam.has_method("closeP2PSessionWithUser"):
-		Steam.call("closeP2PSessionWithUser", remote_steam_id)
-		print("[Net] closeP2PSessionWithUser remote_steam_id=", remote_steam_id)
-	elif Steam.has_method("closeP2PSession"):
-		Steam.call("closeP2PSession", remote_steam_id)
-		print("[Net] closeP2PSession remote_steam_id=", remote_steam_id)
+	var ids_to_close: Array = remote_steam_ids.keys()
+	if ids_to_close.is_empty() and remote_steam_id != 0:
+		ids_to_close.append(remote_steam_id)
+	for sid in ids_to_close:
+		var target_id := int(sid)
+		if target_id == 0:
+			continue
+		if Steam.has_method("closeP2PSessionWithUser"):
+			Steam.call("closeP2PSessionWithUser", target_id)
+			print("[Net] closeP2PSessionWithUser remote_steam_id=", target_id)
+		elif Steam.has_method("closeP2PSession"):
+			Steam.call("closeP2PSession", target_id)
+			print("[Net] closeP2PSession remote_steam_id=", target_id)
+		else:
+			print("[Net][Warn] no close P2P API available in current GodotSteam")
+
+func _refresh_remote_steam_ids_from_lobby() -> void:
+	if lobby_id == 0:
+		return
+	if not Steam.has_method("getNumLobbyMembers") or not Steam.has_method("getLobbyMemberByIndex"):
+		return
+	var member_count := int(Steam.call("getNumLobbyMembers", lobby_id))
+	if member_count <= 0:
+		return
+	for i in range(member_count):
+		var sid := int(Steam.call("getLobbyMemberByIndex", lobby_id, i))
+		if sid != 0 and sid != steam_id:
+			remote_steam_ids[sid] = true
+			remote_steam_id = sid
+
+func consume_session_interrupt_message() -> String:
+	var msg := _last_session_interrupt_message
+	_last_session_interrupt_message = ""
+	return msg
