@@ -34,7 +34,10 @@ func _build_room() -> void:
 
 func _spawn_players() -> void:
 	var is_mp = NetworkManager.is_multiplayer_game
-	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人", " current_role=", GameManager.current_role, " peer_id=", multiplayer.get_unique_id())
+	var peer_id := 0
+	if multiplayer.multiplayer_peer != null:
+		peer_id = multiplayer.get_unique_id()
+	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人", " current_role=", GameManager.current_role, " peer_id=", peer_id)
 
 	if not is_mp:
 		# ── 单人模式保持不变 ──
