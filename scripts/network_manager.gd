@@ -235,12 +235,15 @@ func hard_cleanup(reason: String = "manual") -> void:
 	
 	_stop_join_watch()
 	is_multiplayer_game = false
+	# 1) 先关闭所有 P2P 会话，避免 listen socket 残留
 	_close_steam_p2p_session()
+	# 2) 再释放 Godot 的 multiplayer peer
+	multiplayer.multiplayer_peer = null
 	if peer and peer.has_method("close"):
 		peer.close()
 	if lobby_id != 0:
 		Steam.leaveLobby(lobby_id)
-	multiplayer.multiplayer_peer = null
+	# 3) 同步硬切语音采集，防止后台残留
 	if VoiceChatManager:
 		if VoiceChatManager.has_method("stop_voice_capture"):
 			VoiceChatManager.stop_voice_capture("close_room")
@@ -281,6 +284,10 @@ func _on_peer_disconnected(_id: int) -> void:
 func _on_connected_to_server() -> void:
 	_stop_join_watch()
 	print("[Net] connected_to_server, sending invite code to host")
+	if multiplayer.multiplayer_peer == null:
+		push_error("[Net] _on_connected_to_server but multiplayer_peer is null")
+		connection_failed.emit()
+		return
 	rpc_id(1, "_send_code_to_host", invite_code)
 	connection_succeeded.emit()
 
@@ -396,7 +403,7 @@ func _close_steam_p2p_session() -> void:
 			Steam.call("closeP2PSession", target_id)
 			print("[Net] closeP2PSession remote_steam_id=", target_id)
 		else:
-			print("[Net][Warn] no close P2P API available in current GodotSteam")
+			push_error("[Net] no close P2P API available in current GodotSteam")
 
 func _refresh_remote_steam_ids_from_lobby() -> void:
 	if lobby_id == 0:

@@ -15,6 +15,7 @@ var is_local: bool = false
 
 # [新增] 背负锚点引用 - 用于强制跟随 BlindPlayer/CarryAnchor
 var _carry_anchor_ref: Node3D = null
+@export var carry_follow_lerp_speed: float = 12.0
 
 # 场景节点引用
 @onready var camera: Camera3D = $Camera3D
@@ -47,6 +48,7 @@ func _ready() -> void:
 	# 关键：本地瘸子必须显式激活自己的相机，避免启动顺序导致黑屏
 	camera.current = true
 	camera.make_current()
+	print("[LamePlayer] camera authority local=", is_local, " authority=", is_multiplayer_authority())
 	# 确保瘸子侧不存在盲人视野遮罩残留
 	if pain_overlay:
 		pain_overlay.color = Color(1, 0, 0, 0)
@@ -76,8 +78,10 @@ func _physics_process(delta: float) -> void:
 	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
 		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
 	if _carry_anchor_ref and is_instance_valid(_carry_anchor_ref):
-		# 只同步位置，保留本地视角旋转控制权，避免镜头被锚点覆盖
-		global_position = _carry_anchor_ref.global_position
+		# 只同步位置，保留本地旋转与镜头控制；使用插值减少网络抖动
+		var target_pos := _carry_anchor_ref.global_position
+		var weight := clampf(delta * carry_follow_lerp_speed, 0.0, 1.0)
+		global_position = global_position.lerp(target_pos, weight)
 
 	# 2. 远程实体不执行本地输入/状态逻辑
 	if not is_local:
