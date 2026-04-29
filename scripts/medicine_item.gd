@@ -74,6 +74,9 @@ func _request_collect() -> void:
 	var sender_id = multiplayer.get_remote_sender_id()
 	if not NetworkManager.is_trusted_sender(sender_id):
 		return
+	if not _is_collect_request_legal():
+		print("[Item] reject collect request: illegal distance/line-of-sight, sender=", sender_id, " item=", name)
+		return
 	_apply_collect.rpc()
 
 # Authority 广播收集结果到所有端
@@ -96,3 +99,26 @@ func _do_collect() -> void:
 	collected = true
 	visible = false
 	col.set_deferred("disabled", true)
+
+func _is_collect_request_legal() -> bool:
+	var players = get_tree().get_nodes_in_group("player")
+	var nearest_dist := INF
+	var nearest_player: Node3D = null
+	for p in players:
+		if p is Node3D:
+			var p3d := p as Node3D
+			var d := p3d.global_position.distance_to(global_position)
+			if d < nearest_dist:
+				nearest_dist = d
+				nearest_player = p3d
+	# 交互距离略高于角色射线，兼容网络抖动
+	if nearest_player == null or nearest_dist > 6.0:
+		return false
+	var space = get_world_3d().direct_space_state
+	var from := nearest_player.global_position + Vector3(0, 1.2, 0)
+	var to := global_position + Vector3(0, 0.5, 0)
+	var params := PhysicsRayQueryParameters3D.create(from, to)
+	params.collision_mask = 1
+	params.exclude = [nearest_player.get_rid(), self.get_rid()]
+	var hit := space.intersect_ray(params)
+	return hit.is_empty()

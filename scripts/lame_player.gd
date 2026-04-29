@@ -76,7 +76,8 @@ func _physics_process(delta: float) -> void:
 	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
 		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
 	if _carry_anchor_ref and is_instance_valid(_carry_anchor_ref):
-		global_transform = _carry_anchor_ref.global_transform
+		# 只同步位置，保留本地视角旋转控制权，避免镜头被锚点覆盖
+		global_position = _carry_anchor_ref.global_position
 
 	# 2. 远程实体不执行本地输入/状态逻辑
 	if not is_local:
