@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 GameManager="*res://scripts/game_manager.gd"
 NetworkManager="*res://scripts/network_manager.gd"
 VoiceChatManager="*res://scripts/VoiceCore.gd"
+LevelManager="*res://Scripts/LevelSystem/LevelManager.gd"
 
 [display]
 
