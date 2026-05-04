@@ -20,4 +20,5 @@ func _init_navigation_ai() -> void:
 func _on_goal_reached() -> void:
 	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
 		return
+	GameManager.is_game_active = false
 	LevelManager.advance()

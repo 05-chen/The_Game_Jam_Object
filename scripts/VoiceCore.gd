@@ -1,7 +1,7 @@
 extends Node
 
 ## --- 基础配置 ---
-const DEFAULT_SAMPLE_RATE: int = 48000
+const DEFAULT_SAMPLE_RATE: int = 16000
 const LOCAL_PACKET_READ_LIMIT: int = 6
 
 ## --- 状态变量 ---
@@ -57,11 +57,7 @@ func _setup_sample_rate() -> void:
 	if not Steam.isSteamRunning():
 		print("语音组件：Steam 未运行")
 		return
-		
-	var optimal_rate: int = Steam.getVoiceOptimalSampleRate()
-	if optimal_rate > 0:
-		_sample_rate = optimal_rate
-		print("Steam 语音采样率设置为: ", _sample_rate)
+	_sample_rate = DEFAULT_SAMPLE_RATE
 
 func _setup_remote_audio_player() -> void:
 	_remote_player = AudioStreamPlayer.new()
@@ -70,7 +66,7 @@ func _setup_remote_audio_player() -> void:
 
 	_remote_generator = AudioStreamGenerator.new()
 	_remote_generator.mix_rate = _sample_rate
-	_remote_generator.buffer_length = 0.2
+	_remote_generator.buffer_length = 0.06
 	_remote_player.stream = _remote_generator
 	_remote_player.play()
 	_remote_playback = _remote_player.get_stream_playback()

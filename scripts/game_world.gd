@@ -18,7 +18,7 @@ func _ready() -> void:
 	_build_room()
 	_spawn_players()
 	_spawn_items()
-	_spawn_ghost()
+	#_spawn_ghost()
 	_setup_demo_ui()
 	_ensure_checkpoint_trigger()
 	_save_checkpoint_now()
@@ -40,9 +40,9 @@ func _spawn_players() -> void:
 	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人", " current_role=", GameManager.current_role, " peer_id=", peer_id)
 
 	if not is_mp:
-		# ── 单人模式保持不变 ──
 		var path = "res://scenes/blind_player.tscn" if GameManager.current_role == GameManager.ROLE_BLIND else "res://scenes/lame_player.tscn"
 		var player = load(path).instantiate()
+		player.is_local = true
 		player.position = Vector3(0, 1, 0)
 		add_child(player)
 	else:
@@ -60,10 +60,11 @@ func _spawn_players() -> void:
 		blind.is_local = (GameManager.current_role == GameManager.ROLE_BLIND)
 		lame.is_local = (GameManager.current_role == GameManager.ROLE_LAME)
 		print("[GameWorld] player role map: blind.is_local=", blind.is_local, " lame.is_local=", lame.is_local)
-
-		# 将节点添加进场景
+		blind.set_multiplayer_authority(1)
 		add_child(blind)
 		add_child(lame)
+		blind.position = Vector3(0, 1, 0)
+		lame.position = Vector3(2, 1, 0)
 
 		# 【关键修复 3】远程实体优化：关闭物理碰撞
 		# 防止由于网络同步的位置与本地物理引擎发生冲突，导致“瞬移”或“抖动”

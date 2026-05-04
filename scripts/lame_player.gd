@@ -19,6 +19,7 @@ var _carry_anchor_ref: Node3D = null
 
 # 场景节点引用
 @onready var camera: Camera3D = $Camera3D
+@onready var ui_root: CanvasLayer = $UI
 @onready var pain_bar: ProgressBar = $UI/Stats/PainBar
 @onready var pain_label: Label = $UI/Stats/PainLabel
 @onready var voice_label: Label = $UI/Stats/VoiceLabel
@@ -37,19 +38,26 @@ func _ready() -> void:
 	# 预缓存 CarryAnchor 引用
 	_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
 	if not is_local:
-		# 远程玩家：禁用摄像机，防止抢夺视野 
 		camera.current = false
-		# 禁用本地 UI 
-		for child in $UI.get_children():
-			if child is CanvasItem: child.visible = false
+		if ui_root:
+			ui_root.visible = false
+		else:
+			for child in $UI.get_children():
+				if child is CanvasItem:
+					child.visible = false
 		return
-	
-	# ── 仅本地玩家执行 ──
-	# 关键：本地瘸子必须显式激活自己的相机，避免启动顺序导致黑屏
+	if GameManager.current_role != GameManager.ROLE_LAME:
+		camera.current = false
+		if ui_root:
+			ui_root.visible = false
+		return
+	if ui_root:
+		ui_root.visible = true
 	camera.current = true
 	camera.make_current()
-	print("[LamePlayer] camera authority local=", is_local, " authority=", is_multiplayer_authority())
-	# 确保瘸子侧不存在盲人视野遮罩残留
+	var listener := AudioListener3D.new()
+	camera.add_child(listener)
+	listener.make_current()
 	if pain_overlay:
 		pain_overlay.color = Color(1, 0, 0, 0)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -61,7 +69,7 @@ func _ready() -> void:
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
-	if not is_local:
+	if not is_local or not GameManager.is_game_active:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * mouse_sensitivity)
@@ -83,15 +91,11 @@ func _physics_process(delta: float) -> void:
 		var weight := clampf(delta * carry_follow_lerp_speed, 0.0, 1.0)
 		global_position = global_position.lerp(target_pos, weight)
 
-	# 2. 远程实体不执行本地输入/状态逻辑
 	if not is_local:
 		return
-
-	# 3. 游戏状态检查
-	if GameManager.is_game_over:
+	if not GameManager.is_game_active or GameManager.is_game_over:
 		return
 
-	# 4. 状态更新
 	GameManager.update_pain(delta)
 	
 	# 5. 多人同步：仅广播旋转和疼痛值（不做位移同步）

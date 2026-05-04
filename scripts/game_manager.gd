@@ -21,6 +21,7 @@ var pain_max: float = 100.0
 var pain_increase_rate: float = 1.5
 
 # 游戏状态
+var is_game_active: bool = true
 var is_game_over: bool = false
 var is_game_won: bool = false
 var puzzles_solved: int = 0
@@ -51,6 +52,7 @@ func _ready() -> void:
 func reset_game() -> void:
 	mental_health = mental_health_max
 	pain_value = 0.0
+	is_game_active = true
 	is_game_over = false
 	is_game_won = false
 	puzzles_solved = 0
@@ -116,6 +118,7 @@ func trigger_game_over(won: bool) -> void:
 		return
 	is_game_over = true
 	is_game_won = won
+	is_game_active = false
 	game_over_triggered.emit(won)
 	# 多人模式下由 Authority 统一裁决并广播
 	if NetworkManager.is_multiplayer_game and multiplayer.is_server():
@@ -140,6 +143,7 @@ func apply_checkpoint_state() -> void:
 		return
 	mental_health = checkpoint_data.get("mental_health", mental_health_max)
 	pain_value = checkpoint_data.get("pain_value", 0.0)
+	is_game_active = true
 	is_game_over = false
 	is_game_won = false
 	mental_health_changed.emit(mental_health)
@@ -160,6 +164,7 @@ func _remote_game_over(won: bool) -> void:
 		return
 	is_game_over = true
 	is_game_won = won
+	is_game_active = false
 	game_over_triggered.emit(won)
 
 @rpc("any_peer", "reliable")
