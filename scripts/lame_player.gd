@@ -1,7 +1,7 @@
 # 瘸子玩家脚本 - 控制瘸子角色的交互和疼痛系统
 # [已修改] 增加 is_local 标记，区分本地/远程
-# [已修改] 远程玩家禁用相机和UI，仅接收旋转同步
-# [已修改] 本地玩家每帧广播旋转和疼痛值
+# [已修改] 远程玩家禁用相机和UI
+# [已修改] 疼痛值按阈值/Tier/心跳做不可靠同步；视角仅本地
 # [修复] 瘸子世界坐标始终跟随瞎子，不独立移动
 # TODO (Network Optimization): 待优化 - 增加远端状态快照队列与插值/缓冲，进一步平滑高延迟下的旋转与表现层同步。
 # TODO (Network Optimization): 待优化 - 统一交互链路为“客户端请求 -> Authority 校验 -> 全局广播结果”，避免未来交互对象出现本地先行生效。
@@ -14,6 +14,12 @@ extends CharacterBody3D
 var is_local: bool = false
 # 语音阶梯同步：仅 Tier 变化时发 RPC，避免每帧传音量
 var last_synced_tier: int = -1
+# 疼痛网络快照：阈值 / Tier / 心跳，避免每物理帧发包
+var _last_sent_pain_for_net: float = -9999.0
+var _last_sent_tier_for_net: int = -9999
+var _last_pain_net_rpc_at_ms: int = 0
+const PAIN_NET_DELTA_MIN: float = 5.0
+const PAIN_NET_HEARTBEAT_MS: int = 1100
 
 # [新增] 背负锚点引用 - 用于强制跟随 BlindPlayer/CarryAnchor
 var _carry_anchor_ref: Node3D = null
@@ -30,7 +36,6 @@ var _carry_anchor_ref: Node3D = null
 
 # 初始化函数
 func _ready() -> void:
-	print("[LamePlayer] _ready: is_local=", is_local, " current_role=", GameManager.current_role)
 	add_to_group("player")
 	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
 	collision_layer = 0
@@ -99,32 +104,35 @@ func _physics_process(delta: float) -> void:
 		return
 
 	GameManager.update_pain(delta)
-	
-	# 5. 多人同步：仅广播旋转和疼痛值（不做位移同步）
+
 	if NetworkManager.is_multiplayer_game:
-		_sync_lame.rpc(rotation.y, camera.rotation.x, GameManager.pain_value)
+		_maybe_network_sync_pain()
 
 
-# [修复版] 瘸子状态同步 RPC
+func _maybe_network_sync_pain() -> void:
+	var p := GameManager.pain_value
+	var tier := GameManager.pain_to_voice_tier(p)
+	var now := Time.get_ticks_msec()
+	var delta_big := absf(p - _last_sent_pain_for_net) >= PAIN_NET_DELTA_MIN
+	var tier_changed := tier != _last_sent_tier_for_net
+	var heartbeat := now - _last_pain_net_rpc_at_ms >= PAIN_NET_HEARTBEAT_MS
+	if not (delta_big or tier_changed or heartbeat):
+		return
+	_last_sent_pain_for_net = p
+	_last_sent_tier_for_net = tier
+	_last_pain_net_rpc_at_ms = now
+	_sync_lame_pain.rpc(p)
+
+
+# 仅同步疼痛 UI；视角完全本地，不跨网络传旋转
 @rpc("any_peer", "unreliable_ordered", "call_remote")
-func _sync_lame(rot_y: float, cam_x: float, pain: float) -> void:
-	# 【关键修改 1】如果是本地控制者，直接忽略来自网络的同步包，防止动作抖动
+func _sync_lame_pain(pain: float) -> void:
 	if is_local:
 		return
-
-	# 安全检查
 	if NetworkManager.is_multiplayer_game:
-		var sender_id = multiplayer.get_remote_sender_id()
+		var sender_id := multiplayer.get_remote_sender_id()
 		if not NetworkManager.is_trusted_sender(sender_id):
 			return
-
-	# 更新远程实体的外观
-	rotation.y = rot_y
-	if camera:
-		camera.rotation.x = cam_x
-	
-	# 【关键修改 2】仅更新显示效果，不改全局变量，防止逻辑冲突
-	# 调用你 lame_player.gd 里已有的处理函数来更新进度条和红屏效果
 	_on_pain(pain)
 
 

@@ -131,6 +131,7 @@ func _spawn_ghost() -> void:
 	# 多人模式下，Ghost AI 仅在 Host 端运行
 	if NetworkManager.is_multiplayer_game:
 		g.is_host_controlled = multiplayer.is_server()
+		g.set_multiplayer_authority(1)
 	add_child(g)
 	_ghost_spawn_positions[g.get_path()] = g.global_position
 

@@ -1,8 +1,6 @@
 [gd_scene format=3 uid="uid://dbjju3go6t3fy"]
 
 [ext_resource type="Script" uid="uid://cbywmtuihjwmo" path="res://scripts/lame_player.gd" id="1"]
-[ext_resource type="Script" uid="uid://djbyr8g8h4ee7" path="res://scripts/lame_voice_logic.gd" id="2_dv7jp"]
-[ext_resource type="Script" uid="uid://bprmws5ks4un1" path="res://scripts/VoiceCore.gd" id="3_304r7"]
 
 [sub_resource type="CapsuleShape3D" id="cap1"]
 radius = 0.35
@@ -94,9 +92,3 @@ text = "角色: 瘸子 (无法移动 只能环顾四周)"
 layout_mode = 2
 text = "提示: 观察环境 引导瞎子找药品和线索"
 autowrap_mode = 2
-
-[node name="PainVoiceLogic" type="Node" parent="." unique_id=1411070869]
-script = ExtResource("2_dv7jp")
-
-[node name="VoiceSystem" type="Node" parent="." unique_id=1026048741]
-script = ExtResource("3_304r7")
