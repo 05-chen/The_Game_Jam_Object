@@ -18,7 +18,10 @@ var _remote_generator: AudioStreamGenerator = null
 var _remote_playback: AudioStreamGeneratorPlayback = null
 var _remote_pcm_buffer: PackedByteArray = PackedByteArray()
 var _remote_read_idx: int = 0
-var _remote_volume_multiplier: float = 1.0
+var _remote_target_db: float = 0.0
+var _remote_smoothed_db: float = 0.0
+const REMOTE_DB_LERP_SPEED: float = 12.0
+var _voice_transmit_enabled: bool = true
 var _runtime_enabled: bool = true
 
 func _ready() -> void:
@@ -35,23 +38,37 @@ func _setup_voice() -> void:
 	_setup_sample_rate()
 	_setup_remote_audio_player()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _runtime_enabled:
 		if _is_recording:
 			_set_recording(false)
 		return
 	if not NetworkManager.is_multiplayer_game:
-		if _is_recording: _set_recording(false)
-		_remote_volume_multiplier = 1.0
+		if _is_recording:
+			_set_recording(false)
 		is_disabled_by_pain = false
+		_voice_transmit_enabled = true
+		_remote_target_db = 0.0
+		_remote_smoothed_db = 0.0
+		if _remote_player:
+			_remote_player.volume_db = 0.0
 		return
 
+	_smooth_remote_voice_db(delta)
 	_update_recording_state()
-	
+
 	if _is_recording:
 		_poll_and_send_local_voice()
-		
+
 	_consume_remote_audio_frames()
+
+
+func _smooth_remote_voice_db(delta: float) -> void:
+	if _remote_player == null:
+		return
+	var k := clampf(REMOTE_DB_LERP_SPEED * delta, 0.0, 1.0)
+	_remote_smoothed_db = lerpf(_remote_smoothed_db, _remote_target_db, k)
+	_remote_player.volume_db = _remote_smoothed_db
 
 func _setup_sample_rate() -> void:
 	if not Steam.isSteamRunning():
@@ -66,15 +83,17 @@ func _setup_remote_audio_player() -> void:
 
 	_remote_generator = AudioStreamGenerator.new()
 	_remote_generator.mix_rate = _sample_rate
-	_remote_generator.buffer_length = 0.06
+	# 约 45ms 抖动缓冲，在稳定性与 40~50ms 级延迟目标之间折中
+	_remote_generator.buffer_length = 0.045
 	_remote_player.stream = _remote_generator
+	_remote_player.volume_db = 0.0
 	_remote_player.play()
 	_remote_playback = _remote_player.get_stream_playback()
 
 func _update_recording_state() -> void:
 	# 核心逻辑：只有在没被疼痛禁用时，按键或常开才有效
 	var can_work = not is_disabled_by_pain
-	var should_record: bool = (always_on_voice or Input.is_action_pressed("push_to_talk")) and can_work
+	var should_record: bool = (always_on_voice or Input.is_action_pressed("push_to_talk")) and can_work and _voice_transmit_enabled
 	
 	if should_record != _is_recording:
 		_set_recording(should_record)
@@ -98,7 +117,10 @@ func shutdown_voice(reason: String = "") -> void:
 		_set_recording(false)
 	_remote_pcm_buffer.clear()
 	_remote_read_idx = 0
-	_remote_volume_multiplier = 0.0
+	_remote_target_db = -80.0
+	_remote_smoothed_db = -80.0
+	if _remote_player:
+		_remote_player.volume_db = -80.0
 	is_disabled_by_pain = false
 	if _remote_player and _remote_player.playing:
 		_remote_player.stop()
@@ -108,24 +130,33 @@ func startup_voice(reason: String = "") -> void:
 		return
 	print("[Voice] startup_voice reason=", reason)
 	_runtime_enabled = true
-	_remote_volume_multiplier = 1.0
-	if _remote_player and not _remote_player.playing:
-		_remote_player.play()
+	_voice_transmit_enabled = true
+	_remote_target_db = 0.0
+	_remote_smoothed_db = 0.0
+	if _remote_player:
+		_remote_player.volume_db = 0.0
+		if not _remote_player.playing:
+			_remote_player.play()
 
 func set_local_pain_voice_policy(pain: float) -> void:
 	# 规则：>=80 禁言；40~80 保持可录音，由远端播放增益做衰减体现
 	is_disabled_by_pain = pain >= 80.0
 
+func set_voice_transmit_enabled(enabled: bool) -> void:
+	_voice_transmit_enabled = enabled
+
+
+func set_remote_voice_tier(tier: int) -> void:
+	_remote_target_db = GameManager.voice_tier_to_volume_db(tier)
+
+
 func set_remote_pain_voice_policy(pain: float) -> void:
-	# 规则：40~80 线性衰减；>=80 完全静音
-	if pain >= 80.0:
-		_remote_volume_multiplier = 0.0
-	elif pain >= 40.0:
-		_remote_volume_multiplier = GameManager.get_voice_multiplier_from_pain(pain)
-	else:
-		_remote_volume_multiplier = 1.0
+	# 兼容旧调用：按疼痛映射为阶梯目标 dB，实际平滑在 _smooth_remote_voice_db
+	set_remote_voice_tier(GameManager.pain_to_voice_tier(pain))
 
 func _poll_and_send_local_voice() -> void:
+	if not _voice_transmit_enabled:
+		return
 	for _i in range(LOCAL_PACKET_READ_LIMIT):
 		var voice_data: Dictionary = Steam.getVoice()
 		
@@ -154,8 +185,6 @@ func _consume_remote_audio_frames() -> void:
 		return
 
 	var frames_available: int = _remote_playback.get_frames_available()
-	
-	var volume_mul: float = _remote_volume_multiplier
 
 	while frames_available > 0 and _remote_read_idx + 1 < _remote_pcm_buffer.size():
 		var lo: int = _remote_pcm_buffer[_remote_read_idx]
@@ -164,7 +193,7 @@ func _consume_remote_audio_frames() -> void:
 		var raw_value: int = lo | (hi << 8)
 		if raw_value >= 32768: raw_value -= 65536
 		
-		var amplitude: float = clampf((float(raw_value) / 32768.0) * volume_mul, -1.0, 1.0)
+		var amplitude: float = clampf(float(raw_value) / 32768.0, -1.0, 1.0)
 		_remote_playback.push_frame(Vector2(amplitude, amplitude))
 		
 		_remote_read_idx += 2

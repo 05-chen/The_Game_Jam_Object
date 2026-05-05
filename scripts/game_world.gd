@@ -43,7 +43,7 @@ func _spawn_players() -> void:
 		var path = "res://scenes/blind_player.tscn" if GameManager.current_role == GameManager.ROLE_BLIND else "res://scenes/lame_player.tscn"
 		var player = load(path).instantiate()
 		player.is_local = true
-		player.position = Vector3(0, 1, 0)
+		player.position = Vector3(0, 1, 0) if GameManager.current_role == GameManager.ROLE_BLIND else Vector3(2, 1, 0)
 		add_child(player)
 	else:
 		# ── 多人模式：核心修复 ──

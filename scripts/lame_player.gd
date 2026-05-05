@@ -12,6 +12,8 @@ extends CharacterBody3D
 
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
 var is_local: bool = false
+# 语音阶梯同步：仅 Tier 变化时发 RPC，避免每帧传音量
+var last_synced_tier: int = -1
 
 # [新增] 背负锚点引用 - 用于强制跟随 BlindPlayer/CarryAnchor
 var _carry_anchor_ref: Node3D = null
@@ -130,19 +132,34 @@ func _sync_lame(rot_y: float, cam_x: float, pain: float) -> void:
 func _on_pain(value: float) -> void:
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
-	var voice_mul := GameManager.get_voice_multiplier_from_pain(value)
+	var tier := GameManager.pain_to_voice_tier(value)
+	var voice_mul := GameManager.voice_tier_to_linear_gain(tier)
 	var voice_pct := int(voice_mul * 100.0)
-	if value >= 80.0:
-		voice_label.text = "语音状态: 失效 (>=80)"
-	elif value >= 40.0:
-		voice_label.text = "语音音量: " + str(voice_pct) + "% | 疼痛衰减"
-	else:
-		voice_label.text = "语音音量: 100% | 常开麦"
+	match tier:
+		0:
+			voice_label.text = "语音阶梯: Tier0 | 远端 -80dB | 本机不发送"
+		1:
+			voice_label.text = "语音阶梯: Tier1 | 远端约 -20dB (" + str(voice_pct) + "%)"
+		2:
+			voice_label.text = "语音阶梯: Tier2 | 远端约 -12dB (" + str(voice_pct) + "%)"
+		3:
+			voice_label.text = "语音阶梯: Tier3 | 远端约 -6dB (" + str(voice_pct) + "%)"
+		_:
+			voice_label.text = "语音阶梯: Tier4 | 远端 0dB | 本机>=80 仍禁麦"
 
 	if is_local:
 		VoiceChatManager.set_local_pain_voice_policy(value)
-	else:
-		VoiceChatManager.set_remote_pain_voice_policy(value)
+		if GameManager.current_role == GameManager.ROLE_LAME:
+			VoiceChatManager.set_voice_transmit_enabled(tier != 0)
+			if NetworkManager.is_multiplayer_game:
+				if tier != last_synced_tier:
+					last_synced_tier = tier
+					c_sync_voice_volume.rpc(tier)
+			else:
+				last_synced_tier = tier
+	elif not is_local:
+		# 仅远程代理更新 UI；对端听到的阶梯音量由 c_sync_voice_volume 同步，避免每帧用疼痛重算带宽
+		pass
 
 	if value > 60.0:
 		var intensity = (value - 60.0) / 40.0 * 0.3
@@ -187,6 +204,16 @@ func _show_msg(text: String) -> void:
 	var tw = create_tween()
 	tw.tween_interval(2.0)
 	tw.tween_callback(func() -> void: msg_label.visible = false)
+
+@rpc("any_peer", "reliable", "call_remote")
+func c_sync_voice_volume(tier: int) -> void:
+	if not NetworkManager.is_multiplayer_game:
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NetworkManager.is_trusted_sender(sender_id):
+		return
+	VoiceChatManager.set_remote_voice_tier(tier)
+
 
 # 获取角色类型函数
 func get_role() -> int:

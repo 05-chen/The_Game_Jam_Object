@@ -106,7 +106,7 @@ func _physics_process(delta: float) -> void:
 	if multiplayer.is_server():
 		_simulate_blind_movement_server(delta)
 		return
-	if not is_local:
+	if not is_local or not GameManager.is_game_active:
 		return
 	if GameManager.current_role != GameManager.ROLE_BLIND:
 		return

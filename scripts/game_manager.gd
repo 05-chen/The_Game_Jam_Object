@@ -180,6 +180,48 @@ func _request_game_over(won: bool) -> void:
 func get_voice_multiplier() -> float:
 	return 1.0 - (pain_value / pain_max)
 
-# 根据指定疼痛值计算语音音量乘数（用于联机同步显示/播放）
+
+## 疼痛 → 语音阶梯（Tier），仅用于阶梯同步与 UI，与连续线性映射解耦
+func pain_to_voice_tier(pain: float) -> int:
+	if pain <= 0.0:
+		return 0
+	if pain < 20.0:
+		return 1
+	if pain < 50.0:
+		return 2
+	if pain < 80.0:
+		return 3
+	return 4
+
+
+func voice_tier_to_volume_db(tier: int) -> float:
+	match clampi(tier, 0, 4):
+		0:
+			return -80.0
+		1:
+			return -20.0
+		2:
+			return -12.0
+		3:
+			return -6.0
+		_:
+			return 0.0
+
+
+func voice_tier_to_linear_gain(tier: int) -> float:
+	match clampi(tier, 0, 4):
+		0:
+			return 0.0
+		1:
+			return 0.1
+		2:
+			return 0.25
+		3:
+			return 0.5
+		_:
+			return 1.0
+
+
+# 根据疼痛值得到阶梯对应的线性增益（用于 UI 百分比等）
 func get_voice_multiplier_from_pain(pain: float) -> float:
-	return clampf(1.0 - (pain / pain_max), 0.0, 1.0)
+	return voice_tier_to_linear_gain(pain_to_voice_tier(pain))
