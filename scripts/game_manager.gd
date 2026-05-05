@@ -92,6 +92,13 @@ func reduce_pain(amount: float) -> void:
 	pain_value = clampf(pain_value - amount, 0.0, pain_max)
 	pain_value_changed.emit(pain_value)
 
+
+## 联机：由 LamePlayer 的 RPC 在各端写入瘸子疼痛快照（与 update_pain 同源，不触发额外网络发送）
+func sync_pain_value_from_network(value: float) -> void:
+	var clamped := clampf(value, 0.0, pain_max)
+	pain_value = clamped
+	pain_value_changed.emit(pain_value)
+
 # 收集药物函数
 func collect_medicine(role: int) -> void:
 	if role == ROLE_BLIND:

@@ -12,8 +12,6 @@ extends CharacterBody3D
 
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
 var is_local: bool = false
-# 语音阶梯同步：仅 Tier 变化时发 RPC，避免每帧传音量
-var last_synced_tier: int = -1
 # 疼痛网络快照：阈值 / Tier / 心跳，避免每物理帧发包
 var _last_sent_pain_for_net: float = -9999.0
 var _last_sent_tier_for_net: int = -9999
@@ -68,11 +66,12 @@ func _ready() -> void:
 	if pain_overlay:
 		pain_overlay.color = Color(1, 0, 0, 0)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	GameManager.pain_value_changed.connect(_on_pain)
+	# 仅本地瘸子：疼痛 UI 与 GameManager.pain_value 信号绑定（语音 Tier 由 VoiceChatManager 监听同一信号）
+	GameManager.pain_value_changed.connect(_update_lame_pain_ui)
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
-	_on_pain(GameManager.pain_value)
+	_update_lame_pain_ui(GameManager.pain_value)
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
@@ -124,20 +123,19 @@ func _maybe_network_sync_pain() -> void:
 	_sync_lame_pain.rpc(p)
 
 
-# 仅同步疼痛 UI；视角完全本地，不跨网络传旋转
+## 联机：发送端不执行（call_remote）；接收端写入全局 GameManager.pain_value，并触发 pain_value_changed（供 VoiceChatManager / 本地瘸子 UI）
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _sync_lame_pain(pain: float) -> void:
-	if is_local:
+	if not NetworkManager.is_multiplayer_game:
 		return
-	if NetworkManager.is_multiplayer_game:
-		var sender_id := multiplayer.get_remote_sender_id()
-		if not NetworkManager.is_trusted_sender(sender_id):
-			return
-	_on_pain(pain)
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NetworkManager.is_trusted_sender(sender_id):
+		return
+	GameManager.sync_pain_value_from_network(pain)
 
 
-# 疼痛值变化处理函数
-func _on_pain(value: float) -> void:
+# 仅本地瘸子：刷新疼痛条/遮罩/说明文字（语音由 VoiceChatManager + GameManager.pain_value 驱动）
+func _update_lame_pain_ui(value: float) -> void:
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
 	var tier := GameManager.pain_to_voice_tier(value)
@@ -154,20 +152,6 @@ func _on_pain(value: float) -> void:
 			voice_label.text = "语音阶梯: Tier3 | 疼痛20~50 | 远端约 -6dB (" + str(voice_pct) + "%)"
 		_:
 			voice_label.text = "语音阶梯: Tier4 | 疼痛0~20 | 远端 0dB | 疼痛低音量最大"
-
-	if is_local:
-		VoiceChatManager.set_local_pain_voice_policy(value)
-		if GameManager.current_role == GameManager.ROLE_LAME:
-			VoiceChatManager.set_voice_transmit_enabled(tier != 0)
-			if NetworkManager.is_multiplayer_game:
-				if tier != last_synced_tier:
-					last_synced_tier = tier
-					c_sync_voice_volume.rpc(tier)
-			else:
-				last_synced_tier = tier
-	elif not is_local:
-		# 仅远程代理更新 UI；对端听到的阶梯音量由 c_sync_voice_volume 同步，避免每帧用疼痛重算带宽
-		pass
 
 	if value > 60.0:
 		var intensity = (value - 60.0) / 40.0 * 0.3
@@ -212,15 +196,6 @@ func _show_msg(text: String) -> void:
 	var tw = create_tween()
 	tw.tween_interval(2.0)
 	tw.tween_callback(func() -> void: msg_label.visible = false)
-
-@rpc("any_peer", "reliable", "call_remote")
-func c_sync_voice_volume(tier: int) -> void:
-	if not NetworkManager.is_multiplayer_game:
-		return
-	var sender_id := multiplayer.get_remote_sender_id()
-	if not NetworkManager.is_trusted_sender(sender_id):
-		return
-	VoiceChatManager.set_remote_voice_tier(tier)
 
 
 # 获取角色类型函数

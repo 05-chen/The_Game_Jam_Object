@@ -48,6 +48,7 @@ func _ready() -> void:
 	camera.add_child(_audio_listener)
 	_audio_listener.make_current()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# 瞎子路径：显式不连接 pain_value_changed；UI 仅心理值（场景无疼痛条）。瘸子疼痛由 GameManager 同步，供 VoiceChatManager 调节对方语音音量。
 	GameManager.mental_health_changed.connect(_on_health)
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)

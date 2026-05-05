@@ -31,12 +31,32 @@ func _ready() -> void:
 		set_process(false)
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	GameManager.pain_value_changed.connect(_on_global_pain_for_voice)
 	# 确保 Steam 初始化后再设置语音
 	call_deferred("_setup_voice")
 
 func _setup_voice() -> void:
 	_setup_sample_rate()
 	_setup_remote_audio_player()
+	_on_global_pain_for_voice(GameManager.pain_value)
+
+
+## 本地/远端语音阶梯均以 GameManager.pain_value 为准（瘸子端控麦，瞎子端控收听音量）
+func _on_global_pain_for_voice(pain: float) -> void:
+	if not _runtime_enabled:
+		return
+	if NetworkManager.is_multiplayer_game:
+		match GameManager.current_role:
+			GameManager.ROLE_LAME:
+				set_local_pain_voice_policy(pain)
+				var tier_mp := GameManager.pain_to_voice_tier(pain)
+				set_voice_transmit_enabled(tier_mp != 0)
+			GameManager.ROLE_BLIND:
+				set_remote_voice_tier(GameManager.pain_to_voice_tier(pain))
+	else:
+		if GameManager.current_role == GameManager.ROLE_LAME:
+			set_local_pain_voice_policy(pain)
+			set_voice_transmit_enabled(GameManager.pain_to_voice_tier(pain) != 0)
 
 func _process(delta: float) -> void:
 	if not _runtime_enabled:
@@ -137,6 +157,7 @@ func startup_voice(reason: String = "") -> void:
 		_remote_player.volume_db = 0.0
 		if not _remote_player.playing:
 			_remote_player.play()
+	_on_global_pain_for_voice(GameManager.pain_value)
 
 func set_local_pain_voice_policy(pain: float) -> void:
 	# 与 GameManager.pain_to_voice_tier 一致：仅 Tier0（疼痛>=100 濒死）彻底禁麦
