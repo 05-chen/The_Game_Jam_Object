@@ -181,31 +181,32 @@ func get_voice_multiplier() -> float:
 	return 1.0 - (pain_value / pain_max)
 
 
-## 疼痛 → 语音阶梯（Tier），仅用于阶梯同步与 UI，与连续线性映射解耦
+## Tier → 远端播放音量（dB），与 pain_to_voice_tier 配套；VoiceChatManager 通过 voice_tier_to_volume_db 读取
+const VOICE_TIER_DB: Dictionary = {
+	0: -80.0,
+	1: -20.0,
+	2: -12.0,
+	3: -6.0,
+	4: 0.0,
+}
+
+
+## 疼痛越高 → Tier 越低 → 音量越小。Tier4=健康大声，Tier0=达到疼痛上限（濒死）静音/禁发
 func pain_to_voice_tier(pain: float) -> int:
-	if pain <= 0.0:
+	if pain >= pain_max:
 		return 0
-	if pain < 20.0:
+	if pain >= 80.0:
 		return 1
-	if pain < 50.0:
+	if pain >= 50.0:
 		return 2
-	if pain < 80.0:
+	if pain >= 20.0:
 		return 3
 	return 4
 
 
 func voice_tier_to_volume_db(tier: int) -> float:
-	match clampi(tier, 0, 4):
-		0:
-			return -80.0
-		1:
-			return -20.0
-		2:
-			return -12.0
-		3:
-			return -6.0
-		_:
-			return 0.0
+	var t := clampi(tier, 0, 4)
+	return float(VOICE_TIER_DB.get(t, 0.0))
 
 
 func voice_tier_to_linear_gain(tier: int) -> float:

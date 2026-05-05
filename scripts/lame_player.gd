@@ -137,15 +137,15 @@ func _on_pain(value: float) -> void:
 	var voice_pct := int(voice_mul * 100.0)
 	match tier:
 		0:
-			voice_label.text = "语音阶梯: Tier0 | 远端 -80dB | 本机不发送"
+			voice_label.text = "语音阶梯: Tier0 | 疼痛满值 | 静音/本机禁发"
 		1:
-			voice_label.text = "语音阶梯: Tier1 | 远端约 -20dB (" + str(voice_pct) + "%)"
+			voice_label.text = "语音阶梯: Tier1 | 疼痛80~100 | 远端约 -20dB (" + str(voice_pct) + "%)"
 		2:
-			voice_label.text = "语音阶梯: Tier2 | 远端约 -12dB (" + str(voice_pct) + "%)"
+			voice_label.text = "语音阶梯: Tier2 | 疼痛50~80 | 远端约 -12dB (" + str(voice_pct) + "%)"
 		3:
-			voice_label.text = "语音阶梯: Tier3 | 远端约 -6dB (" + str(voice_pct) + "%)"
+			voice_label.text = "语音阶梯: Tier3 | 疼痛20~50 | 远端约 -6dB (" + str(voice_pct) + "%)"
 		_:
-			voice_label.text = "语音阶梯: Tier4 | 远端 0dB | 本机>=80 仍禁麦"
+			voice_label.text = "语音阶梯: Tier4 | 疼痛0~20 | 远端 0dB | 疼痛低音量最大"
 
 	if is_local:
 		VoiceChatManager.set_local_pain_voice_policy(value)

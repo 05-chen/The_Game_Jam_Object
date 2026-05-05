@@ -139,15 +139,15 @@ func startup_voice(reason: String = "") -> void:
 			_remote_player.play()
 
 func set_local_pain_voice_policy(pain: float) -> void:
-	# 规则：>=80 禁言；40~80 保持可录音，由远端播放增益做衰减体现
-	is_disabled_by_pain = pain >= 80.0
+	# 与 GameManager.pain_to_voice_tier 一致：仅 Tier0（疼痛>=100 濒死）彻底禁麦
+	is_disabled_by_pain = GameManager.pain_to_voice_tier(pain) == 0
 
 func set_voice_transmit_enabled(enabled: bool) -> void:
 	_voice_transmit_enabled = enabled
 
 
 func set_remote_voice_tier(tier: int) -> void:
-	_remote_target_db = GameManager.voice_tier_to_volume_db(tier)
+	_remote_target_db = GameManager.voice_tier_to_volume_db(tier)  # 使用 GameManager.VOICE_TIER_DB
 
 
 func set_remote_pain_voice_policy(pain: float) -> void:
