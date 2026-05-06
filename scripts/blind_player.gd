@@ -56,6 +56,19 @@ func _ready() -> void:
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
 	_refresh_light()
+	var vp := get_viewport()
+	if vp and not vp.size_changed.is_connected(_on_viewport_size_changed):
+		vp.size_changed.connect(_on_viewport_size_changed)
+
+
+func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp and vp.size_changed.is_connected(_on_viewport_size_changed):
+		vp.size_changed.disconnect(_on_viewport_size_changed)
+
+
+func _on_viewport_size_changed() -> void:
+	_refresh_light()
 
 
 func _disable_scene_lights_for_blind_view() -> void:
@@ -211,7 +224,6 @@ func _refresh_light() -> void:
 		spot_light.light_energy = 1.0 + ratio * 1.5
 	if vision_mask and vision_mask.material is ShaderMaterial:
 		var mat := vision_mask.material as ShaderMaterial
-		mat.set_shader_parameter("screen_size", get_viewport().get_visible_rect().size)
 		var target_radius := ratio * 0.18
 		if mh < 8.0:
 			target_radius = 0.0

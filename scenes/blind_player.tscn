@@ -17,7 +17,6 @@ size = Vector3(0.15, 0.1, 0.3)
 shader = ExtResource("2_5e0yh")
 shader_parameter/vision_radius = 0.15
 shader_parameter/feather = 0.1
-shader_parameter/screen_size = Vector2(1920, 1080)
 
 [node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
 collision_layer = 2
