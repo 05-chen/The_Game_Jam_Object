@@ -3,6 +3,18 @@ extends CharacterBody3D
 @export var move_speed: float = 4.0
 @export var mouse_sensitivity: float = 0.003
 @export var visual_smooth: float = 18.0
+## 联机：位移“够大才算动”的宽松阈值（米），与旋转阈值分离，避免小碎步抢带宽
+@export var sync_move_pos_epsilon_m: float = 0.05
+## 发送 / 广播时 yaw、pitch 的最小变化（度），取极小值保证转头连贯
+@export var sync_rot_send_epsilon_deg: float = 0.1
+## 摇杆式移动意图：输入向量变化低于此视为未变（与位移阈值概念分离，取较松）
+@export var sync_input_vector_epsilon: float = 0.05
+## 动作中（移动/转头/本帧鼠标）客户端发输入、主机播快照的间隔（毫秒）
+@export var sync_host_broadcast_interval_ms: int = 33
+## 完全静止时的慢心跳（毫秒）
+@export var sync_move_rpc_heartbeat_still_ms: int = 80
+## 表现层：水平角略快于位置，减轻 40~50ms 快照间隔下的视角滞涩（仍用 lerp_angle 最短弧）
+@export var visual_smooth_rot_scale: float = 1.22
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var is_local: bool = false
@@ -13,6 +25,22 @@ var _remote_cam_x: float = 0.0
 var _net_pos: Vector3 = Vector3.ZERO
 var _net_rot_y: float = 0.0
 var _net_cam_x: float = 0.0
+
+## 联机：减少「每物理帧一包」；动作优先时收紧到 sync_host_broadcast_interval_ms
+var _last_move_rpc_ms: int = -1_000_000
+var _last_sent_input: Vector2 = Vector2(INF, INF)
+var _last_sent_rot_y: float = INF
+var _last_sent_cam_x: float = INF
+var _mouse_look_this_frame: bool = false
+var _prev_phys_rot_y: float = 0.0
+var _prev_phys_cam_x: float = 0.0
+var _prev_phys_initialized: bool = false
+
+var _last_sync_broadcast_ms: int = -1_000_000
+var _last_bcast_pos: Vector3 = Vector3(INF, INF, INF)
+var _last_bcast_rot_y: float = INF
+var _last_bcast_cam_x: float = INF
+var _has_ever_bcast: bool = false
 
 @onready var camera: Camera3D = $Camera3D
 @onready var ui_root: CanvasLayer = $UI
@@ -30,6 +58,9 @@ func _ready() -> void:
 	_net_pos = global_position
 	_net_rot_y = rotation.y
 	_net_cam_x = camera.rotation.x
+	_prev_phys_rot_y = rotation.y
+	_prev_phys_cam_x = camera.rotation.x
+	_prev_phys_initialized = true
 	if not is_local:
 		camera.current = false
 		if ui_root:
@@ -89,6 +120,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_local or not GameManager.is_game_active:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_mouse_look_this_frame = true
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		camera.rotate_x(-event.relative.y * mouse_sensitivity)
 		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
@@ -99,13 +131,15 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
-	var k := clampf(visual_smooth * delta, 0.0, 1.0)
-	global_position = global_position.lerp(_net_pos, k)
+	var k_pos := clampf(visual_smooth * delta, 0.0, 1.0)
+	global_position = global_position.lerp(_net_pos, k_pos)
 	var local_blind := is_local and GameManager.current_role == GameManager.ROLE_BLIND
 	if not local_blind:
-		rotation.y = lerp_angle(rotation.y, _net_rot_y, k)
+		# lerp_angle 走最短弧；角速度用略大的 k，快照间隔抖动时仍平滑趋近目标
+		var k_rot := clampf(visual_smooth * visual_smooth_rot_scale * delta, 0.0, 1.0)
+		rotation.y = lerp_angle(rotation.y, _net_rot_y, k_rot)
 		if camera:
-			camera.rotation.x = lerpf(camera.rotation.x, _net_cam_x, k)
+			camera.rotation.x = lerpf(camera.rotation.x, _net_cam_x, k_rot)
 
 
 func _physics_process(delta: float) -> void:
@@ -124,7 +158,37 @@ func _physics_process(delta: float) -> void:
 		return
 	if GameManager.current_role != GameManager.ROLE_BLIND:
 		return
-	s_request_move.rpc_id(1, Input.get_vector("move_left", "move_right", "move_forward", "move_backward"), rotation.y, camera.rotation.x)
+	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+	var cam_x := camera.rotation.x
+	var now_ms := Time.get_ticks_msec()
+	var rot_eps_rad := deg_to_rad(sync_rot_send_epsilon_deg)
+	## 与「发送阈值 0.1°」分离：仅检测物理帧之间是否在转头（略大于浮点噪声即可）
+	var turn_step_rad := deg_to_rad(0.02)
+
+	var moving := input_dir.length_squared() > 1e-6
+	var turning_step := false
+	if _prev_phys_initialized:
+		turning_step = absf(angle_difference(_prev_phys_rot_y, rotation.y)) >= turn_step_rad or absf(_prev_phys_cam_x - cam_x) >= turn_step_rad
+	_prev_phys_rot_y = rotation.y
+	_prev_phys_cam_x = cam_x
+	_prev_phys_initialized = true
+
+	var action_priority := moving or turning_step or _mouse_look_this_frame
+	var interval_ms := sync_host_broadcast_interval_ms if action_priority else sync_move_rpc_heartbeat_still_ms
+	var heartbeat := now_ms - _last_move_rpc_ms >= interval_ms
+
+	var input_changed := input_dir.distance_to(_last_sent_input) >= sync_input_vector_epsilon
+	var rot_changed := absf(angle_difference(_last_sent_rot_y, rotation.y)) >= rot_eps_rad
+	var cam_changed := absf(_last_sent_cam_x - cam_x) >= rot_eps_rad
+
+	if not (heartbeat or input_changed or rot_changed or cam_changed):
+		return
+	_last_sent_input = input_dir
+	_last_sent_rot_y = rotation.y
+	_last_sent_cam_x = cam_x
+	_last_move_rpc_ms = now_ms
+	_mouse_look_this_frame = false
+	s_request_move.rpc_id(1, input_dir, rotation.y, cam_x)
 
 
 func _simulate_blind_movement(delta: float) -> void:
@@ -161,7 +225,26 @@ func _simulate_blind_movement_server(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
 	move_and_slide()
 	GameManager.update_mental_health(delta)
-	c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
+	var now_ms := Time.get_ticks_msec()
+	var rot_eps_rad := deg_to_rad(sync_rot_send_epsilon_deg)
+
+	var moving := input_dir.length_squared() > 1e-6
+	var physically_active := moving or velocity.length_squared() > 0.02
+	var interval_ms := sync_host_broadcast_interval_ms if physically_active else sync_move_rpc_heartbeat_still_ms
+	var heartbeat := now_ms - _last_sync_broadcast_ms >= interval_ms
+
+	var pos_delta := 0.0 if not _has_ever_bcast else global_position.distance_to(_last_bcast_pos)
+	var pos_push := not _has_ever_bcast or pos_delta >= sync_move_pos_epsilon_m
+	var rot_push := not _has_ever_bcast or absf(angle_difference(_last_bcast_rot_y, rotation.y)) >= rot_eps_rad
+	var cam_push := not _has_ever_bcast or absf(_last_bcast_cam_x - camera.rotation.x) >= rot_eps_rad
+
+	if heartbeat or pos_push or rot_push or cam_push:
+		_last_sync_broadcast_ms = now_ms
+		_last_bcast_pos = global_position
+		_last_bcast_rot_y = rotation.y
+		_last_bcast_cam_x = camera.rotation.x
+		_has_ever_bcast = true
+		c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
 
 
 @rpc("any_peer", "unreliable_ordered")

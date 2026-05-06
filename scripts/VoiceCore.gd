@@ -23,6 +23,9 @@ var _remote_smoothed_db: float = 0.0
 const REMOTE_DB_LERP_SPEED: float = 12.0
 var _voice_transmit_enabled: bool = true
 var _runtime_enabled: bool = true
+## 疼痛阶梯离散化后，仅在 Tier 变化时改麦克/远端增益，避免 pain_value_changed 每帧触发带来的音量微抖
+var _voice_tier_lame_local: int = -999
+var _voice_tier_blind_remote: int = -999
 
 func _ready() -> void:
 	# 只允许 Autoload 单例实例运行语音主循环，避免场景内重复 VoiceCore 造成双录音/双播放
@@ -41,22 +44,31 @@ func _setup_voice() -> void:
 	_on_global_pain_for_voice(GameManager.pain_value)
 
 
-## 本地/远端语音阶梯均以 GameManager.pain_value 为准（瘸子端控麦，瞎子端控收听音量）
+## 本地/远端语音阶梯均以 GameManager.pain_value 为准（瘸子端控麦，瞎子端控收听音量）；Tier 未变则不改 Steam/音量目标，减轻抖动
 func _on_global_pain_for_voice(pain: float) -> void:
 	if not _runtime_enabled:
 		return
+	var tier := GameManager.pain_to_voice_tier(pain)
 	if NetworkManager.is_multiplayer_game:
 		match GameManager.current_role:
 			GameManager.ROLE_LAME:
+				if tier == _voice_tier_lame_local:
+					return
+				_voice_tier_lame_local = tier
 				set_local_pain_voice_policy(pain)
-				var tier_mp := GameManager.pain_to_voice_tier(pain)
-				set_voice_transmit_enabled(tier_mp != 0)
+				set_voice_transmit_enabled(tier != 0)
 			GameManager.ROLE_BLIND:
-				set_remote_voice_tier(GameManager.pain_to_voice_tier(pain))
+				if tier == _voice_tier_blind_remote:
+					return
+				_voice_tier_blind_remote = tier
+				set_remote_voice_tier(tier)
 	else:
 		if GameManager.current_role == GameManager.ROLE_LAME:
+			if tier == _voice_tier_lame_local:
+				return
+			_voice_tier_lame_local = tier
 			set_local_pain_voice_policy(pain)
-			set_voice_transmit_enabled(GameManager.pain_to_voice_tier(pain) != 0)
+			set_voice_transmit_enabled(tier != 0)
 
 func _process(delta: float) -> void:
 	if not _runtime_enabled:
@@ -153,6 +165,8 @@ func startup_voice(reason: String = "") -> void:
 	_voice_transmit_enabled = true
 	_remote_target_db = 0.0
 	_remote_smoothed_db = 0.0
+	_voice_tier_lame_local = -999
+	_voice_tier_blind_remote = -999
 	if _remote_player:
 		_remote_player.volume_db = 0.0
 		if not _remote_player.playing:
