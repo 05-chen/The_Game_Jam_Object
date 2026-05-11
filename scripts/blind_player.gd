@@ -9,8 +9,14 @@ extends CharacterBody3D
 @export var sync_rot_send_epsilon_deg: float = 0.1
 ## 摇杆式移动意图：输入向量变化低于此视为未变（与位移阈值概念分离，取较松）
 @export var sync_input_vector_epsilon: float = 0.05
-## 动作中（移动/转头/本帧鼠标）客户端发输入、主机播快照的间隔（毫秒）
+## 动作中（移动/转头/本帧鼠标）客户端发「移动意图」的最短间隔（毫秒）
 @export var sync_host_broadcast_interval_ms: int = 33
+## 主机向客户端广播**位移**的最短间隔（毫秒）；旋转单独更密
+@export var sync_host_position_broadcast_ms: int = 80
+## 主机广播**水平角/俯仰**的最短间隔（毫秒），与 sync_rot_send_epsilon_deg 配合
+@export var sync_host_rotation_broadcast_min_ms: int = 33
+## 客户端向主机上报视角时的最短间隔（毫秒），与位移心跳分离
+@export var sync_client_rotation_send_min_ms: int = 33
 ## 完全静止时的慢心跳（毫秒）
 @export var sync_move_rpc_heartbeat_still_ms: int = 80
 ## 表现层：水平角略快于位置，减轻 40~50ms 快照间隔下的视角滞涩（仍用 lerp_angle 最短弧）
@@ -26,8 +32,6 @@ var _net_pos: Vector3 = Vector3.ZERO
 var _net_rot_y: float = 0.0
 var _net_cam_x: float = 0.0
 
-## 联机：减少「每物理帧一包」；动作优先时收紧到 sync_host_broadcast_interval_ms
-var _last_move_rpc_ms: int = -1_000_000
 var _last_sent_input: Vector2 = Vector2(INF, INF)
 var _last_sent_rot_y: float = INF
 var _last_sent_cam_x: float = INF
@@ -37,10 +41,16 @@ var _prev_phys_cam_x: float = 0.0
 var _prev_phys_initialized: bool = false
 
 var _last_sync_broadcast_ms: int = -1_000_000
+var _last_pos_broadcast_ms: int = -1_000_000
+var _last_rot_broadcast_ms: int = -1_000_000
 var _last_bcast_pos: Vector3 = Vector3(INF, INF, INF)
 var _last_bcast_rot_y: float = INF
 var _last_bcast_cam_x: float = INF
 var _has_ever_bcast: bool = false
+## 客户端：移动意图上次发送时间 / 视角上次发送时间（分离节流）
+var _last_client_move_send_ms: int = -1_000_000
+var _last_client_rot_send_ms: int = -1_000_000
+var _client_move_bootstrapped: bool = false
 
 @onready var camera: Camera3D = $Camera3D
 @onready var ui_root: CanvasLayer = $UI
@@ -51,6 +61,8 @@ var _has_ever_bcast: bool = false
 
 var spot_light: SpotLight3D = null
 var _audio_listener: AudioListener3D = null
+## 视野遮罩 ShaderMaterial 缓存；fragment 已用 SCREEN_PIXEL_SIZE，无需随分辨率每帧 set 尺寸类 uniform
+var _vision_mask_mat: ShaderMaterial = null
 
 
 func _ready() -> void:
@@ -86,20 +98,20 @@ func _ready() -> void:
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
+	if vision_mask and vision_mask.material is ShaderMaterial:
+		_vision_mask_mat = vision_mask.material as ShaderMaterial
 	_refresh_light()
-	var vp := get_viewport()
-	if vp and not vp.size_changed.is_connected(_on_viewport_size_changed):
-		vp.size_changed.connect(_on_viewport_size_changed)
 
 
 func _exit_tree() -> void:
-	var vp := get_viewport()
-	if vp and vp.size_changed.is_connected(_on_viewport_size_changed):
-		vp.size_changed.disconnect(_on_viewport_size_changed)
-
-
-func _on_viewport_size_changed() -> void:
-	_refresh_light()
+	if GameManager.mental_health_changed.is_connected(_on_health):
+		GameManager.mental_health_changed.disconnect(_on_health)
+	if GameManager.game_over_triggered.is_connected(_on_over):
+		GameManager.game_over_triggered.disconnect(_on_over)
+	if GameManager.medicine_collected.is_connected(_on_med):
+		GameManager.medicine_collected.disconnect(_on_med)
+	if GameManager.puzzle_solved.is_connected(_on_puzzle):
+		GameManager.puzzle_solved.disconnect(_on_puzzle)
 
 
 func _disable_scene_lights_for_blind_view() -> void:
@@ -174,19 +186,25 @@ func _physics_process(delta: float) -> void:
 	_prev_phys_initialized = true
 
 	var action_priority := moving or turning_step or _mouse_look_this_frame
-	var interval_ms := sync_host_broadcast_interval_ms if action_priority else sync_move_rpc_heartbeat_still_ms
-	var heartbeat := now_ms - _last_move_rpc_ms >= interval_ms
+	var move_interval_ms := sync_host_broadcast_interval_ms if action_priority else sync_move_rpc_heartbeat_still_ms
+	var move_hb := now_ms - _last_client_move_send_ms >= move_interval_ms
 
 	var input_changed := input_dir.distance_to(_last_sent_input) >= sync_input_vector_epsilon
 	var rot_changed := absf(angle_difference(_last_sent_rot_y, rotation.y)) >= rot_eps_rad
 	var cam_changed := absf(_last_sent_cam_x - cam_x) >= rot_eps_rad
+	var rot_due := (rot_changed or cam_changed) and (now_ms - _last_client_rot_send_ms >= sync_client_rotation_send_min_ms)
 
-	if not (heartbeat or input_changed or rot_changed or cam_changed):
+	var move_due := input_changed or move_hb
+	if not (_client_move_bootstrapped or move_due or rot_due):
 		return
+	_client_move_bootstrapped = true
 	_last_sent_input = input_dir
 	_last_sent_rot_y = rotation.y
 	_last_sent_cam_x = cam_x
-	_last_move_rpc_ms = now_ms
+	if move_due:
+		_last_client_move_send_ms = now_ms
+	if rot_due:
+		_last_client_rot_send_ms = now_ms
 	_mouse_look_this_frame = false
 	s_request_move.rpc_id(1, input_dir, rotation.y, cam_x)
 
@@ -230,21 +248,30 @@ func _simulate_blind_movement_server(delta: float) -> void:
 
 	var moving := input_dir.length_squared() > 1e-6
 	var physically_active := moving or velocity.length_squared() > 0.02
-	var interval_ms := sync_host_broadcast_interval_ms if physically_active else sync_move_rpc_heartbeat_still_ms
-	var heartbeat := now_ms - _last_sync_broadcast_ms >= interval_ms
+	var still_interval_ms := sync_host_broadcast_interval_ms if physically_active else sync_move_rpc_heartbeat_still_ms
+	var due_still := _has_ever_bcast and (now_ms - _last_sync_broadcast_ms >= still_interval_ms)
 
 	var pos_delta := 0.0 if not _has_ever_bcast else global_position.distance_to(_last_bcast_pos)
 	var pos_push := not _has_ever_bcast or pos_delta >= sync_move_pos_epsilon_m
 	var rot_push := not _has_ever_bcast or absf(angle_difference(_last_bcast_rot_y, rotation.y)) >= rot_eps_rad
 	var cam_push := not _has_ever_bcast or absf(_last_bcast_cam_x - camera.rotation.x) >= rot_eps_rad
 
-	if heartbeat or pos_push or rot_push or cam_push:
-		_last_sync_broadcast_ms = now_ms
-		_last_bcast_pos = global_position
-		_last_bcast_rot_y = rotation.y
-		_last_bcast_cam_x = camera.rotation.x
-		_has_ever_bcast = true
-		c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health)
+	var due_pos := pos_push and (not _has_ever_bcast or now_ms - _last_pos_broadcast_ms >= sync_host_position_broadcast_ms)
+	var due_rot := (rot_push or cam_push) and (not _has_ever_bcast or now_ms - _last_rot_broadcast_ms >= sync_host_rotation_broadcast_min_ms)
+
+	var pos_authoritative := not _has_ever_bcast or due_pos or due_still
+	if not (due_pos or due_rot or due_still):
+		return
+	_last_sync_broadcast_ms = now_ms
+	if pos_authoritative:
+		_last_pos_broadcast_ms = now_ms
+	if due_rot or not _has_ever_bcast or due_still:
+		_last_rot_broadcast_ms = now_ms
+	_last_bcast_pos = global_position
+	_last_bcast_rot_y = rotation.y
+	_last_bcast_cam_x = camera.rotation.x
+	_has_ever_bcast = true
+	c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health, pos_authoritative)
 
 
 @rpc("any_peer", "unreliable_ordered")
@@ -264,10 +291,11 @@ func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float) -> void:
 
 
 @rpc("authority", "unreliable_ordered", "call_remote")
-func c_sync_transform(target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float) -> void:
+func c_sync_transform(target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float, pos_authoritative: bool = true) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		return
-	_net_pos = target_pos
+	if pos_authoritative:
+		_net_pos = target_pos
 	_net_rot_y = target_rot_y
 	_net_cam_x = target_cam_x
 	GameManager.mental_health = mh
@@ -305,13 +333,18 @@ func _refresh_light() -> void:
 	var ratio := clampf(mh / 100.0, 0.0, 1.0)
 	if spot_light != null:
 		spot_light.light_energy = 1.0 + ratio * 1.5
-	if vision_mask and vision_mask.material is ShaderMaterial:
-		var mat := vision_mask.material as ShaderMaterial
+	var mat := _vision_mask_mat
+	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
+		mat = vision_mask.material as ShaderMaterial
+		_vision_mask_mat = mat
+	if mat:
 		var target_radius := ratio * 0.18
 		if mh < 8.0:
 			target_radius = 0.0
-		var current_r = mat.get_shader_parameter("vision_radius")
-		mat.set_shader_parameter("vision_radius", lerp(current_r, target_radius, 0.1))
+		var current_r: float = float(mat.get_shader_parameter("vision_radius"))
+		var new_r := lerpf(current_r, target_radius, 0.1)
+		if not is_equal_approx(new_r, current_r):
+			mat.set_shader_parameter("vision_radius", new_r)
 
 
 func _try_interact() -> void:

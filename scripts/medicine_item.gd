@@ -1,7 +1,6 @@
-# 药物物品脚本 - 处理游戏中的可交互物品
-# [已修改] 增加 RPC 同步拾取状态，确保两端一致
+# 药物物品脚本 - 处理游戏中的可交互物品（联机走 NetworkedAuthorityInteractable 模板）
 
-extends StaticBody3D
+extends NetworkedAuthorityInteractable
 
 # 物品类型常量
 const TYPE_MENTAL = 0  # 心理药物（镇定剂）
@@ -24,13 +23,17 @@ var is_collected: bool = false
 @onready var col: CollisionShape3D = $Col
 @onready var lbl: Label3D = $Lbl
 
-# 初始化函数
+
+func is_interact_exhausted() -> bool:
+	return is_collected
+
+
 func _ready() -> void:
 	initial_y = position.y
 	collision_layer = 8
 	_setup_look()
 
-# 设置物品外观函数
+
 func _setup_look() -> void:
 	var mat = StandardMaterial3D.new()
 	mat.emission_enabled = true
@@ -75,64 +78,30 @@ func _setup_idle_animation_player() -> void:
 	ap.add_animation_library("", lib)
 	ap.play("idle")
 
-# [已修改] 交互函数 - 增加网络同步
-func interact(_role: int) -> void:
-	if is_collected:
-		return
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			var local_player := _resolve_request_player(multiplayer.get_unique_id())
-			if local_player != null and _is_collect_request_legal(local_player):
-				_apply_collect.rpc()
-		else:
-			_request_collect.rpc_id(1)
-		return
-	# 单人模式直接收集
-	_do_collect()
 
-# 客户端请求 Authority 进行收集裁决
-@rpc("any_peer", "reliable")
-func _request_collect() -> void:
-	if not multiplayer.is_server():
-		push_error("[Item] _request_collect called on non-server")
-		return
-	var sender_id = multiplayer.get_remote_sender_id()
-	if not NetworkManager.is_trusted_sender(sender_id):
-		push_error("[Item] untrusted collect sender: %s" % sender_id)
-		return
-	if is_collected:
-		return
+func _authority_validate_host(sender_id: int, _role: int) -> bool:
 	var request_player := _resolve_request_player(sender_id)
 	if request_player == null:
-		push_error("[Item] cannot resolve request player for sender_id=%s" % sender_id)
-		return
-	if not _is_collect_request_legal(request_player):
-		return
-	_apply_collect.rpc()
+		return false
+	return _is_collect_request_legal(request_player)
 
-# Authority 广播收集结果到所有端
-@rpc("authority", "reliable", "call_local")
-func _apply_collect() -> void:
-	_do_collect()
 
-# [新增] 实际收集逻辑（本地和远程共用）
-func _do_collect() -> void:
+func _authority_apply_local() -> void:
 	if is_collected:
 		return
-	# 应用游戏效果
 	if medicine_type == TYPE_MENTAL:
 		GameManager.collect_medicine(GameManager.ROLE_BLIND)
 	elif medicine_type == TYPE_PAIN:
 		GameManager.collect_medicine(GameManager.ROLE_LAME)
 	elif medicine_type == TYPE_KEY:
 		GameManager.solve_puzzle()
-	# 标记为已收集
 	is_collected = true
 	visible = false
 	col.set_deferred("disabled", true)
 	var ap := get_node_or_null("IdleAnim") as AnimationPlayer
 	if ap:
 		ap.stop()
+
 
 func _is_collect_request_legal(request_player: Node3D) -> bool:
 	var dist := request_player.global_position.distance_to(global_position)
@@ -147,10 +116,10 @@ func _is_collect_request_legal(request_player: Node3D) -> bool:
 	var hit := space.intersect_ray(params)
 	return hit.is_empty()
 
+
 func _resolve_request_player(sender_id: int) -> Node3D:
 	if not NetworkManager.is_multiplayer_game:
 		return get_parent().get_node_or_null("BlindPlayer") as Node3D
-	# Godot 默认以 1 为主机，当前项目是 1v1，可通过 sender_id 精确映射到角色实例
 	if sender_id == 1:
 		return get_parent().get_node_or_null("BlindPlayer") as Node3D if GameManager.current_role == GameManager.ROLE_BLIND else get_parent().get_node_or_null("LamePlayer") as Node3D
 	if sender_id == NetworkManager.remote_peer_id:

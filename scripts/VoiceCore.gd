@@ -9,8 +9,8 @@ var _sample_rate: int = DEFAULT_SAMPLE_RATE
 var _is_recording: bool = false
 var always_on_voice: bool = true
 
-# 核心：由外部逻辑脚本（如 PainVoiceLogic）修改此变量
-var is_disabled_by_pain: bool = false 
+# 预留：由主机/规则显式禁麦时可写；日常疼痛阶梯请只用 GameManager + set_voice_transmit_enabled
+var is_disabled_by_pain: bool = false
 
 ## --- 远程音频组件 ---
 var _remote_player: AudioStreamPlayer = null
