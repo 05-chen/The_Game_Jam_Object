@@ -8,6 +8,7 @@ extends Control
 var waiting_for_guest: bool = false  # 是否正在等待玩家加入
 var joined_room: bool = false  # 是否已加入房间
 var _error_dialog: AcceptDialog = null
+var _mp_session_bar: Node = null
 
 # 场景节点引用
 @onready var create_btn: Button = %CreateBtn
@@ -56,10 +57,14 @@ func _ready() -> void:
 	NetworkManager.lobby_search_result.connect(_on_lobby_search_result)
 	NetworkManager.connection_timeout.connect(_on_connection_timeout)
 
-	# 初始化 UI
-	role_panel.visible = false
-	code_display.text = ""
 	_ensure_error_dialog()
+
+	# 从对局返回大厅：保持 P2P / Steam 大厅，仅在大厅内显示会话条与再开局 UI
+	if NetworkManager.is_multiplayer_game:
+		_enter_lobby_with_active_session()
+	else:
+		role_panel.visible = false
+		code_display.text = ""
 
 # 创建房间函数
 func _on_create() -> void:
@@ -140,9 +145,65 @@ func _on_pick_blind() -> void:
 func _on_pick_lame() -> void:
 	NetworkManager.host_start_game(GameManager.ROLE_LAME)
 
-# 返回主菜单函数
+## 对局结束后回到大厅时恢复 UI；会话条与「断开联机」仅在大厅出现
+func _enter_lobby_with_active_session() -> void:
+	_add_mp_session_bar()
+	create_btn.disabled = true
+	join_btn.disabled = true
+	code_input.editable = false
+	if NetworkManager.is_host:
+		if NetworkManager.invite_code != "":
+			code_display.text = "邀请码: " + NetworkManager.invite_code
+		if NetworkManager.guest_connected:
+			status_label.text = "对局已结束；请房主选择角色开始下一局"
+			role_panel.visible = true
+		else:
+			status_label.text = "对局已结束；等待队友连接..."
+			role_panel.visible = false
+		waiting_for_guest = false
+	else:
+		joined_room = true
+		role_panel.visible = false
+		status_label.text = "对局已结束；等待房主选择角色开始下一局"
+
+
+func _add_mp_session_bar() -> void:
+	if _mp_session_bar != null and is_instance_valid(_mp_session_bar):
+		return
+	var main: VBoxContainer = $Main
+	var bar := HBoxContainer.new()
+	bar.name = "MpSessionBar"
+	bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	var lab := Label.new()
+	lab.text = "联机会话进行中 — "
+	bar.add_child(lab)
+	var disc := Button.new()
+	disc.text = "断开联机（留在大厅）"
+	disc.pressed.connect(_on_disconnect_mp_pressed)
+	bar.add_child(disc)
+	main.add_child(bar)
+	main.move_child(bar, 1)
+	_mp_session_bar = bar
+
+
+func _on_disconnect_mp_pressed() -> void:
+	NetworkManager.close_room()
+	if _mp_session_bar != null and is_instance_valid(_mp_session_bar):
+		_mp_session_bar.queue_free()
+		_mp_session_bar = null
+	waiting_for_guest = false
+	joined_room = false
+	_reset_ui()
+	var steam_name := Steam.getPersonaName()
+	status_label.text = "Steam 已就绪 | 用户: " + steam_name
+
+
+# 返回主菜单：主动退出联机并回到首页
 func _on_back() -> void:
 	NetworkManager.close_room()
+	if _mp_session_bar != null and is_instance_valid(_mp_session_bar):
+		_mp_session_bar.queue_free()
+		_mp_session_bar = null
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 # 重置 UI 函数

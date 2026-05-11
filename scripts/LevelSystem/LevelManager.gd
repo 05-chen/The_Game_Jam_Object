@@ -1,5 +1,9 @@
 extends Node
 
+## Autoload：关卡切换与全屏淡入淡出。多人时仅主机调用 [method advance] 推进，并通过 RPC 同步 [method sync_transition]。
+## 与 [Tween](https://docs.godotengine.org/en/stable/classes/class_tween.html)、[SceneTree.change_scene_to_file](https://docs.godotengine.org/en/stable/classes/class_scenetree.html#class-scenetree-method-change-scene-to-file) 相关。
+## 在编辑器中为 `level_array` 填入 `res://...` 场景路径；导入的 Blender 关卡 .tscn 通常也作为其中一项。
+
 @export var level_array: Array[String] = []
 
 var _level_index: int = 0

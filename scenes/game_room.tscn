@@ -60,4 +60,10 @@ text = "下一次游戏"
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
-text = "离开房间返回主菜单"
+text = "返回主菜单（保留联机）"
+
+[node name="DisconnectBtn" type="Button" parent="Main"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "断开联机并回主菜单"

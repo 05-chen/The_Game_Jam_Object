@@ -5,8 +5,9 @@ extends Control
 
 # 初始化函数 - 场景加载时执行
 func _ready() -> void:
-	# 兜底：进入主菜单时强制清理联机残留，防止演示尾声异常
-	NetworkManager.hard_cleanup("enter_main_menu")
+	# 仅在没有活跃联机时清理；联机会话应在大厅内由玩家主动断开
+	if not NetworkManager.is_multiplayer_game:
+		NetworkManager.hard_cleanup("enter_main_menu")
 	_show_interrupt_popup_if_needed()
 	# 连接按钮信号
 	%BlindButton.pressed.connect(_on_blind)  # 瞎子角色按钮
@@ -26,8 +27,11 @@ func _show_interrupt_popup_if_needed() -> void:
 	add_child(dlg)
 	dlg.popup_centered()
 
+
 # 选择瞎子角色函数
 func _on_blind() -> void:
+	if NetworkManager.is_multiplayer_game:
+		NetworkManager.close_room()
 	# 设置当前角色为瞎子
 	GameManager.current_role = GameManager.ROLE_BLIND
 	# 重置游戏状态
@@ -37,6 +41,8 @@ func _on_blind() -> void:
 
 # 选择瘸子角色函数
 func _on_lame() -> void:
+	if NetworkManager.is_multiplayer_game:
+		NetworkManager.close_room()
 	# 设置当前角色为瘸子
 	GameManager.current_role = GameManager.ROLE_LAME
 	# 重置游戏状态
@@ -44,9 +50,8 @@ func _on_lame() -> void:
 	# 切换到游戏世界场景
 	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
 
-# 多人游戏函数
+# 多人游戏函数 → 联机大厅
 func _on_multi() -> void:
-	# 切换到大厅场景
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 # 退出游戏函数

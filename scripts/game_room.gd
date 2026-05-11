@@ -4,11 +4,14 @@ extends Control
 @onready var status_label: Label = %StatusLabel
 @onready var next_game_btn: Button = %NextGameBtn
 @onready var leave_btn: Button = %LeaveBtn
+@onready var disconnect_btn: Button = %DisconnectBtn
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	next_game_btn.pressed.connect(_on_next_game_pressed)
 	leave_btn.pressed.connect(_on_leave_pressed)
+	disconnect_btn.pressed.connect(_on_disconnect_pressed)
+	disconnect_btn.visible = NetworkManager.is_multiplayer_game
 	NetworkManager.player_connected.connect(_on_peer_connected)
 	NetworkManager.player_disconnected.connect(_on_peer_disconnected)
 	_refresh_ui()
@@ -44,6 +47,11 @@ func _on_next_game_pressed() -> void:
 	NetworkManager.host_start_game(GameManager.current_role)
 
 func _on_leave_pressed() -> void:
+	# 仅回主菜单：保留 Steam 大厅与 P2P，便于继续开局
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+
+func _on_disconnect_pressed() -> void:
 	NetworkManager.close_room()
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 

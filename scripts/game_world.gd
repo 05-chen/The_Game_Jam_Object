@@ -135,14 +135,18 @@ func _spawn_ghost() -> void:
 	add_child(g)
 	_ghost_spawn_positions[g.get_path()] = g.global_position
 
-# [演示模式] 游戏失败改为从存档点复活；胜利仍回房间/主菜单
+# 胜利：单机回主菜单；联机回联机大厅（不断开房间）。失败：单机检查点复活；联机同样回大厅
 func _on_game_over(won: bool) -> void:
 	if won:
 		await get_tree().create_timer(2.0).timeout
 		if NetworkManager.is_multiplayer_game:
-			get_tree().change_scene_to_file("res://scenes/game_room.tscn")
+			get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 		else:
 			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		return
+	if NetworkManager.is_multiplayer_game:
+		await get_tree().create_timer(2.0).timeout
+		get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 		return
 	_request_respawn_from_checkpoint()
 
