@@ -10,6 +10,9 @@ extends CharacterBody3D
 
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
+## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
+const JUMP_VELOCITY: float = 4.5
+
 # [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
 var is_local: bool = false
 # 疼痛网络快照：阈值 / Tier / 心跳，避免每物理帧发包
@@ -88,6 +91,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# [增量] 权威端跳跃占位：瘸子实际位移由 CarryAnchor 跟随瞎子，起跳轨迹由瞎子同步带动
+	if is_multiplayer_authority() and is_on_floor() and Input.is_action_just_pressed("ui_accept"):
+		velocity.y = JUMP_VELOCITY
 	# 1. 每帧强制跟随 BlindPlayer/CarryAnchor（本地与远程都执行）
 	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
 		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")

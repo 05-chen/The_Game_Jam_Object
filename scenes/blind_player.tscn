@@ -18,6 +18,12 @@ shader = ExtResource("2_5e0yh")
 shader_parameter/vision_radius = 0.15
 shader_parameter/feather = 0.1
 
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_sync"]
+properties/0/path = NodePath(".:global_position")
+properties/0/replication_mode = 2
+properties/1/path = NodePath(".:velocity")
+properties/1/replication_mode = 2
+
 [node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
 collision_layer = 2
 script = ExtResource("1")
@@ -109,3 +115,8 @@ grow_horizontal = 2
 grow_vertical = 0
 text = "[E] 互动"
 horizontal_alignment = 1
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
+root_path = NodePath("..")
+replication_interval = 0.0333333
+replication_config = SubResource("SceneReplicationConfig_sync")

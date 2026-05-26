@@ -22,13 +22,15 @@ extends CharacterBody3D
 ## 表现层：水平角略快于位置，减轻 40~50ms 快照间隔下的视角滞涩（仍用 lerp_angle 最短弧）
 @export var visual_smooth_rot_scale: float = 1.22
 
+const JUMP_VELOCITY: float = 4.5
+
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var is_local: bool = false
 
 var _remote_move_input: Vector2 = Vector2.ZERO
+var _remote_want_jump: bool = false
 var _remote_rot_y: float = 0.0
 var _remote_cam_x: float = 0.0
-var _net_pos: Vector3 = Vector3.ZERO
 var _net_rot_y: float = 0.0
 var _net_cam_x: float = 0.0
 
@@ -67,7 +69,6 @@ var _vision_mask_mat: ShaderMaterial = null
 
 func _ready() -> void:
 	add_to_group("player")
-	_net_pos = global_position
 	_net_rot_y = rotation.y
 	_net_cam_x = camera.rotation.x
 	_prev_phys_rot_y = rotation.y
@@ -143,8 +144,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
-	var k_pos := clampf(visual_smooth * delta, 0.0, 1.0)
-	global_position = global_position.lerp(_net_pos, k_pos)
+	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
 	var local_blind := is_local and GameManager.current_role == GameManager.ROLE_BLIND
 	if not local_blind:
 		# lerp_angle 走最短弧；角速度用略大的 k，快照间隔抖动时仍平滑趋近目标
@@ -157,6 +157,9 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if not GameManager.is_game_active or GameManager.is_game_over:
 		return
+	# [增量] 联机跳跃：仅在权威端改 velocity，由 MultiplayerSynchronizer 同步给远端
+	if is_multiplayer_authority():
+		_apply_authority_jump()
 	if not NetworkManager.is_multiplayer_game:
 		if not is_local:
 			return
@@ -206,7 +209,25 @@ func _physics_process(delta: float) -> void:
 	if rot_due:
 		_last_client_rot_send_ms = now_ms
 	_mouse_look_this_frame = false
-	s_request_move.rpc_id(1, input_dir, rotation.y, cam_x)
+	var want_jump := Input.is_action_just_pressed("ui_accept")
+	s_request_move.rpc_id(1, input_dir, rotation.y, cam_x, want_jump)
+
+
+## 权威端起跳：主机当瞎子用本地输入；客机当瞎子经 s_request_move 上报 want_jump
+func _apply_authority_jump() -> void:
+	if not is_on_floor():
+		return
+	var want_jump := false
+	if NetworkManager.is_multiplayer_game:
+		if GameManager.current_role == GameManager.ROLE_BLIND:
+			want_jump = Input.is_action_just_pressed("ui_accept")
+		elif _remote_want_jump:
+			want_jump = true
+			_remote_want_jump = false
+	else:
+		want_jump = Input.is_action_just_pressed("ui_accept")
+	if want_jump:
+		velocity.y = JUMP_VELOCITY
 
 
 func _simulate_blind_movement(delta: float) -> void:
@@ -275,7 +296,7 @@ func _simulate_blind_movement_server(delta: float) -> void:
 
 
 @rpc("any_peer", "unreliable_ordered")
-func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float) -> void:
+func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float, want_jump: bool = false) -> void:
 	if not NetworkManager.is_multiplayer_game or not multiplayer.is_server():
 		return
 	var sender_id := multiplayer.get_remote_sender_id()
@@ -288,14 +309,14 @@ func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float) -> void:
 	_remote_move_input = input_dir
 	_remote_rot_y = rot_y
 	_remote_cam_x = cam_x
+	if want_jump:
+		_remote_want_jump = true
 
 
 @rpc("authority", "unreliable_ordered", "call_remote")
 func c_sync_transform(target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float, pos_authoritative: bool = true) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		return
-	if pos_authoritative:
-		_net_pos = target_pos
 	_net_rot_y = target_rot_y
 	_net_cam_x = target_cam_x
 	GameManager.mental_health = mh

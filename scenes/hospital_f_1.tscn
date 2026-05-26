@@ -3,3 +3,9 @@
 [ext_resource type="PackedScene" uid="uid://dreey6ffv2hpk" path="res://scenes/GamePlayScene/hospital f1.glb" id="1_s68wi"]
 
 [node name="hospital f1" unique_id=1745072830 instance=ExtResource("1_s68wi")]
+
+[node name="Furniture_011" parent="." index="103" unique_id=1671917372]
+transform = Transform3D(-19.15365, 2.9335113e-05, -0.3035453, -2.9335113e-05, 19.156055, 0.0037023125, 0.3035453, 0.0037023122, -19.15365, -42.954834, -4.697532, 700.83093)
+
+[node name="Furniture_120" parent="." index="104" unique_id=435780578]
+transform = Transform3D(-21.526104, -2.3798779e-05, 0.24625808, 2.3798779e-05, 21.527515, 0.004160772, -0.24625805, 0.004160772, -21.526106, -72.98619, -5.4704685, 702.1566)
