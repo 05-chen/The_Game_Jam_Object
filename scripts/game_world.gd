@@ -66,10 +66,11 @@ func _spawn_players() -> void:
 		blind.position = Vector3(0, 1, 0)
 		lame.position = Vector3(2, 1, 0)
 
-		# 【关键修复 3】远程实体优化：关闭物理碰撞
-		# 防止由于网络同步的位置与本地物理引擎发生冲突，导致“瞬移”或“抖动”
-		if not blind.is_local:
+		# 【关键修复 3】远程实体：仅客户端上的远程代理关碰撞；主机代算瞎子必须保留碰撞
+		if not blind.is_local and not multiplayer.is_server():
 			_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
+		elif not blind.is_local and multiplayer.is_server():
+			_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))
 		if not lame.is_local:
 			_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
 

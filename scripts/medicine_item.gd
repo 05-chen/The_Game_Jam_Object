@@ -11,7 +11,7 @@ const TYPE_KEY = 2     # 钥匙碎片
 @export var medicine_type: int = 0
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
-@export var max_collect_distance: float = 3.0
+@export var max_collect_distance: float = 5.0
 @export_flags_3d_physics var obstruction_mask: int = 1
 
 # 内部变量
@@ -26,6 +26,14 @@ var is_collected: bool = false
 
 func is_interact_exhausted() -> bool:
 	return is_collected
+
+
+func interact(role: int) -> void:
+	if is_interact_exhausted():
+		return
+	if not _can_role_collect(role):
+		return
+	super.interact(role)
 
 
 func _ready() -> void:
@@ -79,7 +87,20 @@ func _setup_idle_animation_player() -> void:
 	ap.play("idle")
 
 
-func _authority_validate_host(sender_id: int, _role: int) -> bool:
+func _can_role_collect(role: int) -> bool:
+	match medicine_type:
+		TYPE_MENTAL:
+			return role == GameManager.ROLE_BLIND
+		TYPE_PAIN:
+			return role == GameManager.ROLE_LAME
+		TYPE_KEY:
+			return true
+	return false
+
+
+func _authority_validate_host(sender_id: int, role: int) -> bool:
+	if not _can_role_collect(role):
+		return false
 	var request_player := _resolve_request_player(sender_id)
 	if request_player == null:
 		return false
@@ -104,17 +125,25 @@ func _authority_apply_local() -> void:
 
 
 func _is_collect_request_legal(request_player: Node3D) -> bool:
-	var dist := request_player.global_position.distance_to(global_position)
+	var probe := _get_interact_probe(request_player)
+	var from: Vector3 = probe["from"]
+	var dist: float = from.distance_to(global_position + Vector3(0, 0.5, 0))
 	if dist > max_collect_distance:
 		return false
 	var space = get_world_3d().direct_space_state
-	var from := request_player.global_position + Vector3(0, 1.2, 0)
 	var to := global_position + Vector3(0, 0.5, 0)
 	var params := PhysicsRayQueryParameters3D.create(from, to)
 	params.collision_mask = obstruction_mask
 	params.exclude = [request_player.get_rid(), self.get_rid()]
 	var hit := space.intersect_ray(params)
 	return hit.is_empty()
+
+
+func _get_interact_probe(request_player: Node3D) -> Dictionary:
+	var cam := request_player.get_node_or_null("Camera3D") as Camera3D
+	if cam:
+		return {"from": cam.global_position}
+	return {"from": request_player.global_position + Vector3(0, 1.2, 0)}
 
 
 func _resolve_request_player(sender_id: int) -> Node3D:

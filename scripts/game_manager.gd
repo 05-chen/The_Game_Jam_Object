@@ -34,6 +34,11 @@ var checkpoint_data: Dictionary = {}
 var dev_invincible: bool = false
 var dev_paused: bool = false
 
+## 本地 UI / 信号节流：避免每物理帧 emit 拖垮语音与 HUD
+var _mental_last_emitted: float = 100.0
+var _pain_last_emitted: float = 0.0
+const STAT_EMIT_EPSILON: float = 0.4
+
 # 游戏事件信号
 signal mental_health_changed(value: float)
 signal pain_value_changed(value: float)
@@ -61,6 +66,8 @@ func reset_game() -> void:
 	dev_invincible = false
 	dev_paused = false
 	checkpoint_data = {}
+	_mental_last_emitted = mental_health_max
+	_pain_last_emitted = 0.0
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
@@ -68,8 +75,11 @@ func update_mental_health(delta: float) -> void:
 		return
 	if dev_invincible:
 		return
+	var prev := mental_health
 	mental_health = clampf(mental_health - mental_health_decay_rate * delta, 0.0, mental_health_max)
-	mental_health_changed.emit(mental_health)
+	if absf(mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON or (prev > 0.0 and mental_health <= 0.0):
+		_mental_last_emitted = mental_health
+		mental_health_changed.emit(mental_health)
 	if mental_health <= 0.0:
 		trigger_game_over(false)
 
@@ -77,19 +87,26 @@ func update_mental_health(delta: float) -> void:
 func update_pain(delta: float) -> void:
 	if is_game_over:
 		return
+	var prev := pain_value
 	pain_value = clampf(pain_value + pain_increase_rate * delta, 0.0, pain_max)
-	pain_value_changed.emit(pain_value)
+	var tier_prev := pain_to_voice_tier(prev)
+	var tier_now := pain_to_voice_tier(pain_value)
+	if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_prev != tier_now or pain_value >= pain_max:
+		_pain_last_emitted = pain_value
+		pain_value_changed.emit(pain_value)
 	if pain_value >= pain_max:
 		trigger_game_over(false)
 
 # 增加心理值函数
 func add_mental_health(amount: float) -> void:
 	mental_health = clampf(mental_health + amount, 0.0, mental_health_max)
+	_mental_last_emitted = mental_health
 	mental_health_changed.emit(mental_health)
 
 # 减少疼痛值函数
 func reduce_pain(amount: float) -> void:
 	pain_value = clampf(pain_value - amount, 0.0, pain_max)
+	_pain_last_emitted = pain_value
 	pain_value_changed.emit(pain_value)
 
 
@@ -97,6 +114,7 @@ func reduce_pain(amount: float) -> void:
 func sync_pain_value_from_network(value: float) -> void:
 	var clamped := clampf(value, 0.0, pain_max)
 	pain_value = clamped
+	_pain_last_emitted = clamped
 	pain_value_changed.emit(pain_value)
 
 # 收集药物函数
@@ -150,6 +168,8 @@ func apply_checkpoint_state() -> void:
 		return
 	mental_health = checkpoint_data.get("mental_health", mental_health_max)
 	pain_value = checkpoint_data.get("pain_value", 0.0)
+	_mental_last_emitted = mental_health
+	_pain_last_emitted = pain_value
 	is_game_active = true
 	is_game_over = false
 	is_game_won = false

@@ -53,6 +53,8 @@ var _has_ever_bcast: bool = false
 var _last_client_move_send_ms: int = -1_000_000
 var _last_client_rot_send_ms: int = -1_000_000
 var _client_move_bootstrapped: bool = false
+var _last_synced_mh: float = -1.0
+const MH_NET_SYNC_EPSILON: float = 0.5
 
 @onready var camera: Camera3D = $Camera3D
 @onready var ui_root: CanvasLayer = $UI
@@ -69,6 +71,7 @@ var _vision_mask_mat: ShaderMaterial = null
 
 func _ready() -> void:
 	add_to_group("player")
+	_configure_vision_mask()
 	_net_rot_y = rotation.y
 	_net_cam_x = camera.rotation.x
 	_prev_phys_rot_y = rotation.y
@@ -91,7 +94,6 @@ func _ready() -> void:
 	_audio_listener = AudioListener3D.new()
 	camera.add_child(_audio_listener)
 	_audio_listener.make_current()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# 瞎子路径：显式不连接 pain_value_changed；UI 仅心理值（场景无疼痛条）。瘸子疼痛由 GameManager 同步，供 VoiceChatManager 调节对方语音音量。
 	GameManager.mental_health_changed.connect(_on_health)
 	GameManager.game_over_triggered.connect(_on_over)
@@ -99,9 +101,21 @@ func _ready() -> void:
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
-	if vision_mask and vision_mask.material is ShaderMaterial:
-		_vision_mask_mat = vision_mask.material as ShaderMaterial
 	_refresh_light()
+	if _can_control_local_camera():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _configure_vision_mask() -> void:
+	if vision_mask == null:
+		return
+	vision_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 白色乘色，Alpha 完全由 Shader 输出；避免 ColorRect 默认色把洞糊成死黑
+	vision_mask.color = Color(1, 1, 1, 1)
+	if vision_mask.material is ShaderMaterial:
+		var mat := (vision_mask.material as ShaderMaterial).duplicate()
+		vision_mask.material = mat
+		_vision_mask_mat = mat
 
 
 func _exit_tree() -> void:
@@ -130,15 +144,26 @@ func _disable_lights_recursive(node: Node) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not is_local or not GameManager.is_game_active:
+	if not _can_control_local_camera():
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_mouse_look_this_frame = true
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
-		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
+		_apply_look(event.relative)
 	if event.is_action_pressed("interact"):
 		_try_interact()
+
+
+func _can_control_local_camera() -> bool:
+	return is_local \
+		and GameManager.is_game_active \
+		and not GameManager.is_game_over \
+		and GameManager.current_role == GameManager.ROLE_BLIND
+
+
+func _apply_look(relative: Vector2) -> void:
+	_mouse_look_this_frame = true
+	rotate_y(-relative.x * mouse_sensitivity)
+	camera.rotate_x(-relative.y * mouse_sensitivity)
+	camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
 
 
 func _process(delta: float) -> void:
@@ -291,8 +316,12 @@ func _simulate_blind_movement_server(delta: float) -> void:
 	_last_bcast_pos = global_position
 	_last_bcast_rot_y = rotation.y
 	_last_bcast_cam_x = camera.rotation.x
+	var mh := GameManager.mental_health
+	var mh_push := _last_synced_mh < 0.0 or absf(mh - _last_synced_mh) >= MH_NET_SYNC_EPSILON
+	if mh_push:
+		_last_synced_mh = mh
 	_has_ever_bcast = true
-	c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, GameManager.mental_health, pos_authoritative)
+	c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, mh, pos_authoritative, mh_push)
 
 
 @rpc("any_peer", "unreliable_ordered")
@@ -314,13 +343,14 @@ func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float, want_jump: b
 
 
 @rpc("authority", "unreliable_ordered", "call_remote")
-func c_sync_transform(target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float, pos_authoritative: bool = true) -> void:
+func c_sync_transform(_target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float, _pos_authoritative: bool = true, apply_mh: bool = true) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		return
 	_net_rot_y = target_rot_y
 	_net_cam_x = target_cam_x
-	GameManager.mental_health = mh
-	GameManager.mental_health_changed.emit(mh)
+	if apply_mh:
+		GameManager.mental_health = mh
+		GameManager.mental_health_changed.emit(mh)
 
 
 func _on_health(value: float) -> void:

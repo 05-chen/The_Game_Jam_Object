@@ -38,6 +38,8 @@ var _carry_anchor_ref: Node3D = null
 # 初始化函数
 func _ready() -> void:
 	add_to_group("player")
+	if pain_overlay:
+		pain_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
 	collision_layer = 0
 	collision_mask = 0
@@ -68,24 +70,36 @@ func _ready() -> void:
 	listener.make_current()
 	if pain_overlay:
 		pain_overlay.color = Color(1, 0, 0, 0)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# 仅本地瘸子：疼痛 UI 与 GameManager.pain_value 信号绑定（语音 Tier 由 VoiceChatManager 监听同一信号）
 	GameManager.pain_value_changed.connect(_update_lame_pain_ui)
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_update_lame_pain_ui(GameManager.pain_value)
+	if _can_control_local_camera():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
-	if not is_local or not GameManager.is_game_active:
+	if not _can_control_local_camera():
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
-		camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
+		_apply_look(event.relative)
 	if event.is_action_pressed("interact"):
 		_try_interact()
+
+
+func _can_control_local_camera() -> bool:
+	return is_local \
+		and GameManager.is_game_active \
+		and not GameManager.is_game_over \
+		and GameManager.current_role == GameManager.ROLE_LAME
+
+
+func _apply_look(relative: Vector2) -> void:
+	rotate_y(-relative.x * mouse_sensitivity)
+	camera.rotate_x(-relative.y * mouse_sensitivity)
+	camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
 
 
 
