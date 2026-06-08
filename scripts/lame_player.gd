@@ -12,9 +12,13 @@ extends CharacterBody3D
 
 ## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
 const JUMP_VELOCITY: float = 4.5
+const INTERACT_RAY_MASK: int = 8
+const INTERACT_RANGE: float = 5.0
+const PAIN_LERP_SPEED: float = 10.0
 
-# [新增] 多人标记 - 由 game_world.gd 在 add_child 之前设置
 var is_local: bool = false
+var is_spawning: bool = true
+var _display_pain: float = 0.0
 # 疼痛网络快照：阈值 / Tier / 心跳，避免每物理帧发包
 var _last_sent_pain_for_net: float = -9999.0
 var _last_sent_tier_for_net: int = -9999
@@ -76,8 +80,15 @@ func _ready() -> void:
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_update_lame_pain_ui(GameManager.pain_value)
+	_display_pain = GameManager.pain_value
 	if _can_control_local_camera():
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		InputMouseGuard.capture_for_local_player()
+
+
+func _on_spawning_finished() -> void:
+	velocity = Vector3.ZERO
+	if _can_control_local_camera():
+		InputMouseGuard.capture_for_local_player()
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:
@@ -91,9 +102,19 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _can_control_local_camera() -> bool:
 	return is_local \
+		and not is_spawning \
 		and GameManager.is_game_active \
 		and not GameManager.is_game_over \
 		and GameManager.current_role == GameManager.ROLE_LAME
+
+
+func _process(delta: float) -> void:
+	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
+		var target_pain := GameManager.target_pain_value
+		if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+			target_pain = GameManager.pain_value
+		_display_pain = lerpf(_display_pain, target_pain, clampf(PAIN_LERP_SPEED * delta, 0.0, 1.0))
+		_apply_pain_overlay_from_display()
 
 
 func _apply_look(relative: Vector2) -> void:
@@ -105,6 +126,9 @@ func _apply_look(relative: Vector2) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_spawning:
+		velocity = Vector3.ZERO
+		return
 	# [增量] 权威端跳跃占位：瘸子实际位移由 CarryAnchor 跟随瞎子，起跳轨迹由瞎子同步带动
 	if is_multiplayer_authority() and is_on_floor() and Input.is_action_just_pressed("ui_accept"):
 		velocity.y = JUMP_VELOCITY
@@ -112,10 +136,12 @@ func _physics_process(delta: float) -> void:
 	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
 		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
 	if _carry_anchor_ref and is_instance_valid(_carry_anchor_ref):
-		# 只同步位置，保留本地旋转与镜头控制；使用插值减少网络抖动
 		var target_pos := _carry_anchor_ref.global_position
-		var weight := clampf(delta * carry_follow_lerp_speed, 0.0, 1.0)
-		global_position = global_position.lerp(target_pos, weight)
+		if NetworkManager.is_multiplayer_game and multiplayer.is_server():
+			global_position = target_pos
+		else:
+			var weight := clampf(delta * carry_follow_lerp_speed, 0.0, 1.0)
+			global_position = global_position.lerp(target_pos, weight)
 
 	if not is_local:
 		return
@@ -151,11 +177,14 @@ func _sync_lame_pain(pain: float) -> void:
 	var sender_id := multiplayer.get_remote_sender_id()
 	if not NetworkManager.is_trusted_sender(sender_id):
 		return
-	GameManager.sync_pain_value_from_network(pain)
+	GameManager.sync_pain_target_from_network(pain)
 
 
 # 仅本地瘸子：刷新疼痛条/遮罩/说明文字（语音由 VoiceChatManager + GameManager.pain_value 驱动）
 func _update_lame_pain_ui(value: float) -> void:
+	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
+		if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+			_display_pain = value
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
 	var tier := GameManager.pain_to_voice_tier(value)
@@ -172,28 +201,35 @@ func _update_lame_pain_ui(value: float) -> void:
 			voice_label.text = "语音阶梯: Tier3 | 疼痛20~50 | 远端约 -6dB (" + str(voice_pct) + "%)"
 		_:
 			voice_label.text = "语音阶梯: Tier4 | 疼痛0~20 | 远端 0dB | 疼痛低音量最大"
+	_apply_pain_overlay_from_display()
 
+
+func _apply_pain_overlay_from_display() -> void:
+	if pain_overlay == null or not is_local:
+		return
+	var value := _display_pain
 	if value > 60.0:
-		var intensity = (value - 60.0) / 40.0 * 0.3
+		var intensity := (value - 60.0) / 40.0 * 0.3
 		pain_overlay.color = Color(1, 0, 0, intensity)
 	else:
 		pain_overlay.color = Color(1, 0, 0, 0)
 
 # 交互尝试函数
 func _try_interact() -> void:
-	var space = get_world_3d().direct_space_state
-	var from = camera.global_position
-	var to = from - camera.global_transform.basis.z * 5.0
-	var params = PhysicsRayQueryParameters3D.create(from, to, 8)
-	var hit = space.intersect_ray(params)
-	if hit.size() > 0:
-		var obj = hit["collider"]
-		if obj.has_method("interact"):
-			obj.interact(GameManager.ROLE_LAME)
+	var space := get_world_3d().direct_space_state
+	var from := camera.global_position
+	var to := from - camera.global_transform.basis.z * INTERACT_RANGE
+	var params := PhysicsRayQueryParameters3D.create(from, to, INTERACT_RAY_MASK)
+	var hit := space.intersect_ray(params)
+	if hit.is_empty():
+		return
+	var collider = hit["collider"]
+	if collider != null and collider.has_method("interact"):
+		collider.interact(GameManager.ROLE_LAME, from, true)
 
-# 游戏结束处理函数
+
 func _on_over(won: bool) -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 	if won:
 		msg_label.text = "逃离成功!"
 	else:

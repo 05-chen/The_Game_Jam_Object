@@ -23,7 +23,7 @@ var _mp_session_bar: Node = null
 
 # 初始化函数
 func _ready() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 
 	# 隐藏不再需要的 IP 输入区域（保留节点兼容 .tscn）
 	var ip_box = find_child("IpBox", true, false)
@@ -97,6 +97,7 @@ func _on_join() -> void:
 func _on_guest_joined() -> void:
 	status_label.text = "玩家已加入! 请选择你的角色"
 	role_panel.visible = true
+	InputMouseGuard.release_for_ui()
 
 # 玩家离开处理函数
 func _on_guest_left() -> void:
@@ -110,7 +111,7 @@ func _on_conn_ok() -> void:
 # 连接失败处理函数
 func _on_conn_failed() -> void:
 	status_label.text = "连接失败 (未找到匹配房间或网络错误)"
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 	_show_error_popup("连接失败，请检查房间邀请码、Steam 在线状态或网络环境。")
 	_reset_ui()
 
@@ -133,7 +134,7 @@ func _on_lobby_search_result(found: bool, matched_count: int) -> void:
 		status_label.text = "找到房间 %d 个，正在加入..." % matched_count
 	else:
 		status_label.text = "未找到匹配邀请码的房间"
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		InputMouseGuard.release_for_ui()
 		_show_error_popup("未找到匹配邀请码的房间，请确认房主已创建成功。")
 		_reset_ui()
 
@@ -157,6 +158,7 @@ func _enter_lobby_with_active_session() -> void:
 		if NetworkManager.guest_connected:
 			status_label.text = "对局已结束；请房主选择角色开始下一局"
 			role_panel.visible = true
+			InputMouseGuard.release_for_ui()
 		else:
 			status_label.text = "对局已结束；等待队友连接..."
 			role_panel.visible = false
@@ -216,7 +218,7 @@ func _reset_ui() -> void:
 
 func _on_connection_timeout(message: String) -> void:
 	status_label.text = message
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 	_show_error_popup(message)
 	_reset_ui()
 
@@ -232,3 +234,4 @@ func _show_error_popup(message: String) -> void:
 	_ensure_error_dialog()
 	_error_dialog.dialog_text = message
 	_error_dialog.popup_centered()
+	InputMouseGuard.release_for_ui()

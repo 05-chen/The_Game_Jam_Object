@@ -23,9 +23,14 @@ extends CharacterBody3D
 @export var visual_smooth_rot_scale: float = 1.22
 
 const JUMP_VELOCITY: float = 4.5
+const INTERACT_RAY_MASK: int = 8
+const INTERACT_RANGE: float = 5.0
+const VISION_LERP_SPEED: float = 10.0
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var is_local: bool = false
+var is_spawning: bool = true
+var _display_mh: float = 100.0
 
 var _remote_move_input: Vector2 = Vector2.ZERO
 var _remote_want_jump: bool = false
@@ -101,9 +106,16 @@ func _ready() -> void:
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
+	_display_mh = GameManager.mental_health
 	_refresh_light()
 	if _can_control_local_camera():
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		InputMouseGuard.capture_for_local_player()
+
+
+func _on_spawning_finished() -> void:
+	velocity = Vector3.ZERO
+	if _can_control_local_camera():
+		InputMouseGuard.capture_for_local_player()
 
 
 func _configure_vision_mask() -> void:
@@ -154,9 +166,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _can_control_local_camera() -> bool:
 	return is_local \
+		and not is_spawning \
 		and GameManager.is_game_active \
 		and not GameManager.is_game_over \
-		and GameManager.current_role == GameManager.ROLE_BLIND
+		and GameManager.current_role == GameManager.ROLE_BLIND \
+		and not GameManager.dev_paused
 
 
 func _apply_look(relative: Vector2) -> void:
@@ -167,6 +181,10 @@ func _apply_look(relative: Vector2) -> void:
 
 
 func _process(delta: float) -> void:
+	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
+		var target_mh := GameManager.target_mental_health if NetworkManager.is_multiplayer_game and not multiplayer.is_server() else GameManager.mental_health
+		_display_mh = lerpf(_display_mh, target_mh, clampf(VISION_LERP_SPEED * delta, 0.0, 1.0))
+		_apply_vision_radius_from_display()
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
 	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
@@ -180,6 +198,9 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_spawning:
+		velocity = Vector3.ZERO
+		return
 	if not GameManager.is_game_active or GameManager.is_game_over:
 		return
 	# [增量] 联机跳跃：仅在权威端改 velocity，由 MultiplayerSynchronizer 同步给远端
@@ -259,7 +280,7 @@ func _simulate_blind_movement(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
-	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	var dir := _camera_flat_move_dir(input_dir)
 	if dir != Vector3.ZERO:
 		velocity.x = dir.x * move_speed
 		velocity.z = dir.z * move_speed
@@ -280,7 +301,7 @@ func _simulate_blind_movement_server(delta: float) -> void:
 			camera.rotation.x = _remote_cam_x
 	if not is_on_floor():
 		velocity.y -= gravity * delta
-	var dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	var dir := _camera_flat_move_dir(input_dir)
 	if dir != Vector3.ZERO:
 		velocity.x = dir.x * move_speed
 		velocity.z = dir.z * move_speed
@@ -349,14 +370,33 @@ func c_sync_transform(_target_pos: Vector3, target_rot_y: float, target_cam_x: f
 	_net_rot_y = target_rot_y
 	_net_cam_x = target_cam_x
 	if apply_mh:
-		GameManager.mental_health = mh
-		GameManager.mental_health_changed.emit(mh)
+		GameManager.sync_mental_target_from_network(mh)
+
+
+func _camera_flat_move_dir(input_dir: Vector2) -> Vector3:
+	if camera == null:
+		return Vector3.ZERO
+	var basis := camera.global_transform.basis
+	var forward := -basis.z
+	forward.y = 0.0
+	var right := basis.x
+	right.y = 0.0
+	if forward.length_squared() < 1e-8 or right.length_squared() < 1e-8:
+		return Vector3.ZERO
+	forward = forward.normalized()
+	right = right.normalized()
+	return (forward * input_dir.y + right * input_dir.x).normalized()
 
 
 func _on_health(value: float) -> void:
 	health_bar.value = value
 	health_label.text = "心理值: " + str(int(value)) + "%"
-	_refresh_light()
+	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+		_display_mh = value
+	_apply_vision_radius_from_display()
+	if spot_light != null:
+		var ratio := clampf(_display_mh / GameManager.mental_health_max, 0.0, 1.0)
+		spot_light.light_energy = 1.0 + ratio * 1.5
 
 
 func _setup_spot_light() -> void:
@@ -380,38 +420,47 @@ func _setup_spot_light() -> void:
 func _refresh_light() -> void:
 	if not is_local:
 		return
-	var mh := GameManager.mental_health
+	var mh := _display_mh
 	var ratio := clampf(mh / 100.0, 0.0, 1.0)
 	if spot_light != null:
 		spot_light.light_energy = 1.0 + ratio * 1.5
+
+
+func _apply_vision_radius_from_display() -> void:
+	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
+		return
+	var mh := _display_mh
+	var ratio := clampf(mh / GameManager.mental_health_max, 0.0, 1.0)
 	var mat := _vision_mask_mat
 	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
 		mat = vision_mask.material as ShaderMaterial
 		_vision_mask_mat = mat
-	if mat:
-		var target_radius := ratio * 0.18
-		if mh < 8.0:
-			target_radius = 0.0
-		var current_r: float = float(mat.get_shader_parameter("vision_radius"))
-		var new_r := lerpf(current_r, target_radius, 0.1)
-		if not is_equal_approx(new_r, current_r):
-			mat.set_shader_parameter("vision_radius", new_r)
+	if mat == null:
+		return
+	var target_radius := ratio * 0.18
+	if mh < 8.0:
+		target_radius = 0.0
+	var current_r: float = float(mat.get_shader_parameter("vision_radius"))
+	var new_r := lerpf(current_r, target_radius, 0.22)
+	if not is_equal_approx(new_r, current_r):
+		mat.set_shader_parameter("vision_radius", new_r)
 
 
 func _try_interact() -> void:
 	var space := get_world_3d().direct_space_state
 	var from := camera.global_position
-	var to := from - camera.global_transform.basis.z * 3.0
-	var params := PhysicsRayQueryParameters3D.create(from, to, 8)
+	var to := from - camera.global_transform.basis.z * INTERACT_RANGE
+	var params := PhysicsRayQueryParameters3D.create(from, to, INTERACT_RAY_MASK)
 	var hit := space.intersect_ray(params)
-	if hit.size() > 0:
-		var obj = hit["collider"]
-		if obj.has_method("interact"):
-			obj.interact(GameManager.ROLE_BLIND)
+	if hit.is_empty():
+		return
+	var collider = hit["collider"]
+	if collider != null and collider.has_method("interact"):
+		collider.interact(GameManager.ROLE_BLIND, from, true)
 
 
 func _on_over(won: bool) -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 	if won:
 		msg_label.text = "逃离成功!"
 	else:

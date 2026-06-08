@@ -24,6 +24,7 @@ func _ready() -> void:
 	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
 	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
+	_schedule_spawn_release()
 
 # 构建房间函数 - 不变
 func _build_room() -> void:
@@ -73,6 +74,31 @@ func _spawn_players() -> void:
 			_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))
 		if not lame.is_local:
 			_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
+
+
+func _schedule_spawn_release() -> void:
+	if not NetworkManager.is_multiplayer_game:
+		call_deferred("_release_players_from_spawn")
+		return
+	if not multiplayer.is_server():
+		return
+	await get_tree().create_timer(2.0).timeout
+	_rpc_finish_spawning.rpc()
+
+
+@rpc("authority", "reliable", "call_local")
+func _rpc_finish_spawning() -> void:
+	_release_players_from_spawn()
+
+
+func _release_players_from_spawn() -> void:
+	for player_name in ["BlindPlayer", "LamePlayer"]:
+		var player := get_node_or_null(player_name)
+		if player == null:
+			continue
+		player.is_spawning = false
+		if player.has_method("_on_spawning_finished"):
+			player._on_spawning_finished()
 
 # 辅助函数：优化远程玩家代理
 func _setup_remote_proxy(player: CharacterBody3D, color: Color) -> void:
@@ -226,6 +252,8 @@ func _request_reset_status_rpc() -> void:
 func _apply_reset_status() -> void:
 	GameManager.mental_health = GameManager.mental_health_max
 	GameManager.pain_value = 0.0
+	GameManager.target_mental_health = GameManager.mental_health_max
+	GameManager.target_pain_value = 0.0
 	GameManager.is_game_over = false
 	GameManager.is_game_won = false
 	GameManager.mental_health_changed.emit(GameManager.mental_health)
@@ -254,9 +282,9 @@ func _apply_pause_state(paused: bool) -> void:
 	if paused and VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
 		VoiceChatManager.shutdown_voice("pause_game")
 	if paused:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		InputMouseGuard.release_for_ui()
 	else:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		InputMouseGuard.capture_for_local_player()
 	_update_pause_ui()
 
 func _request_respawn_from_checkpoint() -> void:
@@ -398,6 +426,8 @@ func _setup_demo_ui() -> void:
 func _update_pause_ui() -> void:
 	if _pause_panel:
 		_pause_panel.visible = GameManager.dev_paused
+		if GameManager.dev_paused:
+			InputMouseGuard.release_for_ui()
 
 func _request_return_lobby() -> void:
 	if NetworkManager.is_multiplayer_game:
@@ -419,7 +449,7 @@ func _request_return_lobby_rpc() -> void:
 func _apply_return_lobby() -> void:
 	GameManager.set_dev_pause(false)
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	InputMouseGuard.release_for_ui()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 func _ensure_checkpoint_trigger() -> void:
@@ -429,6 +459,7 @@ func _ensure_checkpoint_trigger() -> void:
 	var area := Area3D.new()
 	area.name = "Checkpoint"
 	area.position = Vector3(0, 1.0, 0)
+	area.collision_mask = 2
 	area.script = load("res://scripts/checkpoint_trigger.gd")
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()

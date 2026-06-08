@@ -38,6 +38,9 @@ var dev_paused: bool = false
 var _mental_last_emitted: float = 100.0
 var _pain_last_emitted: float = 0.0
 const STAT_EMIT_EPSILON: float = 0.4
+## 网络对齐目标（表现层 lerp 向此靠拢，公式不变）
+var target_mental_health: float = 100.0
+var target_pain_value: float = 0.0
 
 # 游戏事件信号
 signal mental_health_changed(value: float)
@@ -68,6 +71,8 @@ func reset_game() -> void:
 	checkpoint_data = {}
 	_mental_last_emitted = mental_health_max
 	_pain_last_emitted = 0.0
+	target_mental_health = mental_health_max
+	target_pain_value = 0.0
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
@@ -77,6 +82,7 @@ func update_mental_health(delta: float) -> void:
 		return
 	var prev := mental_health
 	mental_health = clampf(mental_health - mental_health_decay_rate * delta, 0.0, mental_health_max)
+	target_mental_health = mental_health
 	if absf(mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON or (prev > 0.0 and mental_health <= 0.0):
 		_mental_last_emitted = mental_health
 		mental_health_changed.emit(mental_health)
@@ -89,6 +95,7 @@ func update_pain(delta: float) -> void:
 		return
 	var prev := pain_value
 	pain_value = clampf(pain_value + pain_increase_rate * delta, 0.0, pain_max)
+	target_pain_value = pain_value
 	var tier_prev := pain_to_voice_tier(prev)
 	var tier_now := pain_to_voice_tier(pain_value)
 	if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_prev != tier_now or pain_value >= pain_max:
@@ -100,22 +107,34 @@ func update_pain(delta: float) -> void:
 # 增加心理值函数
 func add_mental_health(amount: float) -> void:
 	mental_health = clampf(mental_health + amount, 0.0, mental_health_max)
+	target_mental_health = mental_health
 	_mental_last_emitted = mental_health
 	mental_health_changed.emit(mental_health)
 
 # 减少疼痛值函数
 func reduce_pain(amount: float) -> void:
 	pain_value = clampf(pain_value - amount, 0.0, pain_max)
+	target_pain_value = pain_value
 	_pain_last_emitted = pain_value
 	pain_value_changed.emit(pain_value)
 
 
-## 联机：由 LamePlayer 的 RPC 在各端写入瘸子疼痛快照（与 update_pain 同源，不触发额外网络发送）
-func sync_pain_value_from_network(value: float) -> void:
+## 联机：网络包只写目标值，表现层自行 lerp（公式与 Tier 逻辑不变）
+func sync_mental_target_from_network(value: float) -> void:
+	target_mental_health = clampf(value, 0.0, mental_health_max)
+	if absf(target_mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON:
+		_mental_last_emitted = target_mental_health
+		mental_health_changed.emit(target_mental_health)
+
+
+func sync_pain_target_from_network(value: float) -> void:
 	var clamped := clampf(value, 0.0, pain_max)
-	pain_value = clamped
-	_pain_last_emitted = clamped
-	pain_value_changed.emit(pain_value)
+	target_pain_value = clamped
+	var tier_now := pain_to_voice_tier(clamped)
+	var tier_prev := pain_to_voice_tier(_pain_last_emitted)
+	if absf(clamped - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_now != tier_prev:
+		_pain_last_emitted = clamped
+		pain_value_changed.emit(clamped)
 
 # 收集药物函数
 func collect_medicine(role: int) -> void:
@@ -168,8 +187,8 @@ func apply_checkpoint_state() -> void:
 		return
 	mental_health = checkpoint_data.get("mental_health", mental_health_max)
 	pain_value = checkpoint_data.get("pain_value", 0.0)
-	_mental_last_emitted = mental_health
-	_pain_last_emitted = pain_value
+	target_mental_health = mental_health
+	target_pain_value = pain_value
 	is_game_active = true
 	is_game_over = false
 	is_game_won = false
