@@ -114,7 +114,7 @@ func _resolve_collector_pos(sender_id: int, interact_from: Vector3, has_interact
 	if request_player == null:
 		return global_position
 	if has_interact_from:
-		var server_from := _get_interact_probe(request_player)["from"]
+		var server_from: Vector3 = _get_interact_probe(request_player)["from"]
 		if interact_from.distance_to(server_from) <= client_probe_slack_m:
 			return interact_from
 	var cam := request_player.get_node_or_null("Camera3D") as Camera3D
