@@ -119,16 +119,19 @@ func reduce_pain(amount: float) -> void:
 	pain_value_changed.emit(pain_value)
 
 
-## 联机：网络包只写目标值，表现层自行 lerp（公式与 Tier 逻辑不变）
+## 联机：接收端镜像权威数值 + target；本地模拟端仍每帧 update_*，RPC 仅节流对齐对端
 func sync_mental_target_from_network(value: float) -> void:
-	target_mental_health = clampf(value, 0.0, mental_health_max)
-	if absf(target_mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON:
-		_mental_last_emitted = target_mental_health
-		mental_health_changed.emit(target_mental_health)
+	var clamped := clampf(value, 0.0, mental_health_max)
+	mental_health = clamped
+	target_mental_health = clamped
+	if absf(clamped - _mental_last_emitted) >= STAT_EMIT_EPSILON:
+		_mental_last_emitted = clamped
+		mental_health_changed.emit(clamped)
 
 
 func sync_pain_target_from_network(value: float) -> void:
 	var clamped := clampf(value, 0.0, pain_max)
+	pain_value = clamped
 	target_pain_value = clamped
 	var tier_now := pain_to_voice_tier(clamped)
 	var tier_prev := pain_to_voice_tier(_pain_last_emitted)

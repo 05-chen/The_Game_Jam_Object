@@ -105,13 +105,14 @@ func _can_control_local_camera() -> bool:
 		and not is_spawning \
 		and GameManager.is_game_active \
 		and not GameManager.is_game_over \
-		and GameManager.current_role == GameManager.ROLE_LAME
+		and GameManager.current_role == GameManager.ROLE_LAME \
+		and not GameManager.dev_paused
 
 
 func _process(delta: float) -> void:
 	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
 		var target_pain := GameManager.target_pain_value
-		if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+		if not NetworkManager.is_multiplayer_game or _is_local_lame_pain_authority():
 			target_pain = GameManager.pain_value
 		_display_pain = lerpf(_display_pain, target_pain, clampf(PAIN_LERP_SPEED * delta, 0.0, 1.0))
 		_apply_pain_overlay_from_display()
@@ -169,7 +170,7 @@ func _maybe_network_sync_pain() -> void:
 	_sync_lame_pain.rpc(p)
 
 
-## 联机：发送端不执行（call_remote）；接收端写入全局 GameManager.pain_value，并触发 pain_value_changed（供 VoiceChatManager / 本地瘸子 UI）
+## 联机：call_remote，接收端镜像 pain/target（模拟端本地仍每帧 update_pain，不增发包）
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _sync_lame_pain(pain: float) -> void:
 	if not NetworkManager.is_multiplayer_game:
@@ -180,10 +181,16 @@ func _sync_lame_pain(pain: float) -> void:
 	GameManager.sync_pain_target_from_network(pain)
 
 
-# 仅本地瘸子：刷新疼痛条/遮罩/说明文字（语音由 VoiceChatManager + GameManager.pain_value 驱动）
+## 本地瘸子端负责 pain 公式模拟（主机/客户端谁扮演瘸子谁权威，与瞎子「主机算移动」对称）
+func _is_local_lame_pain_authority() -> bool:
+	return is_local and GameManager.current_role == GameManager.ROLE_LAME
+
+
+# 仅本地瘸子：刷新疼痛条/遮罩/说明文字（语音由 VoiceChatManager + pain_value_changed 驱动）
 func _update_lame_pain_ui(value: float) -> void:
 	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
-		if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+		# 本地瘸子（模拟端）：HUD 跟权威 pain_value；对端靠 lerp target
+		if not NetworkManager.is_multiplayer_game or _is_local_lame_pain_authority():
 			_display_pain = value
 	pain_bar.value = value
 	pain_label.text = "疼痛值: " + str(int(value)) + "%"
