@@ -385,7 +385,8 @@ func _camera_flat_move_dir(input_dir: Vector2) -> Vector3:
 		return Vector3.ZERO
 	forward = forward.normalized()
 	right = right.normalized()
-	return (forward * input_dir.y + right * input_dir.x).normalized()
+	# get_vector：W(forward) → y 为负，需取反才沿相机朝向前进
+	return (forward * -input_dir.y + right * input_dir.x).normalized()
 
 
 func _on_health(value: float) -> void:
