@@ -321,6 +321,8 @@ func _apply_pause_state(paused: bool) -> void:
 	get_tree().paused = paused
 	if paused and VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
 		VoiceChatManager.shutdown_voice("pause_game")
+	elif not paused and VoiceChatManager and VoiceChatManager.has_method("startup_voice"):
+		VoiceChatManager.startup_voice("unpause_game")
 	if paused:
 		InputMouseGuard.release_for_ui()
 	else:

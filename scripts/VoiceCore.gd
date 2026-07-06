@@ -2,7 +2,16 @@ extends Node
 
 ## --- 基础配置 ---
 const DEFAULT_SAMPLE_RATE: int = 16000
-const LOCAL_PACKET_READ_LIMIT: int = 6
+## 每帧从 Steam 麦克风队列最多读多少包（避免单帧饿死，但尽量 drain）
+const LOCAL_PACKET_READ_LIMIT: int = 32
+## AudioStreamGenerator 内部缓冲（秒）：公网 P2P 抖动需更大，过小会欠载发糊
+const REMOTE_PLAYBACK_BUFFER_SEC: float = 0.25
+## 开始播放前预缓冲（字节）：16kHz mono s16 ≈ 32000 B/s，6400≈200ms
+const REMOTE_PREBUFFER_BYTES: int = 6400
+## 欠载时最多补多少静音帧，避免 generator 断粮后反复触发预缓冲
+const REMOTE_UNDERRUN_PAD_MS: float = 12.0
+## PCM 队列上限，超出丢弃最旧数据防止延迟无限堆积
+const REMOTE_PCM_MAX_BYTES: int = 32768
 
 ## --- 状态变量 ---
 var _sample_rate: int = DEFAULT_SAMPLE_RATE
@@ -18,6 +27,7 @@ var _remote_generator: AudioStreamGenerator = null
 var _remote_playback: AudioStreamGeneratorPlayback = null
 var _remote_pcm_buffer: PackedByteArray = PackedByteArray()
 var _remote_read_idx: int = 0
+var _remote_playback_primed: bool = false
 var _remote_target_db: float = 0.0
 var _remote_smoothed_db: float = 0.0
 const REMOTE_DB_LERP_SPEED: float = 12.0
@@ -75,15 +85,16 @@ func _process(delta: float) -> void:
 		if _is_recording:
 			_set_recording(false)
 		return
-	if not NetworkManager.is_multiplayer_game:
+	if not NetworkManager.is_voice_link_ready():
 		if _is_recording:
 			_set_recording(false)
-		is_disabled_by_pain = false
-		_voice_transmit_enabled = true
-		_remote_target_db = 0.0
-		_remote_smoothed_db = 0.0
-		if _remote_player:
-			_remote_player.volume_db = 0.0
+		if not NetworkManager.is_multiplayer_game:
+			is_disabled_by_pain = false
+			_voice_transmit_enabled = true
+			_remote_target_db = 0.0
+			_remote_smoothed_db = 0.0
+			if _remote_player:
+				_remote_player.volume_db = 0.0
 		return
 
 	_smooth_remote_voice_db(delta)
@@ -92,6 +103,7 @@ func _process(delta: float) -> void:
 	if _is_recording:
 		_poll_and_send_local_voice()
 
+	_poll_receive_voice_p2p()
 	_consume_remote_audio_frames()
 
 
@@ -115,8 +127,7 @@ func _setup_remote_audio_player() -> void:
 
 	_remote_generator = AudioStreamGenerator.new()
 	_remote_generator.mix_rate = _sample_rate
-	# 约 45ms 抖动缓冲，在稳定性与 40~50ms 级延迟目标之间折中
-	_remote_generator.buffer_length = 0.045
+	_remote_generator.buffer_length = REMOTE_PLAYBACK_BUFFER_SEC
 	_remote_player.stream = _remote_generator
 	_remote_player.volume_db = 0.0
 	_remote_player.play()
@@ -149,6 +160,7 @@ func shutdown_voice(reason: String = "") -> void:
 		_set_recording(false)
 	_remote_pcm_buffer.clear()
 	_remote_read_idx = 0
+	_remote_playback_primed = false
 	_remote_target_db = -80.0
 	_remote_smoothed_db = -80.0
 	if _remote_player:
@@ -161,12 +173,14 @@ func startup_voice(reason: String = "") -> void:
 	if _runtime_enabled:
 		return
 	print("[Voice] startup_voice reason=", reason)
+	NetworkManager._ensure_voice_p2p_session()
 	_runtime_enabled = true
 	_voice_transmit_enabled = true
 	_remote_target_db = 0.0
 	_remote_smoothed_db = 0.0
 	_voice_tier_lame_local = -999
 	_voice_tier_blind_remote = -999
+	_remote_playback_primed = false
 	if _remote_player:
 		_remote_player.volume_db = 0.0
 		if not _remote_player.playing:
@@ -204,39 +218,81 @@ func _poll_and_send_local_voice() -> void:
 			
 		NetworkManager.send_voice_packet(packet)
 
+func _poll_receive_voice_p2p() -> void:
+	for packet in NetworkManager.poll_voice_packets():
+		push_remote_voice_packet(packet)
+
 func push_remote_voice_packet(compressed_voice: PackedByteArray) -> void:
-	if compressed_voice.is_empty(): return
-	
-	var decompressed: Dictionary = Steam.decompressVoice(compressed_voice, _sample_rate)
-	if decompressed.get("result", -1) != Steam.VOICE_RESULT_OK: return
-
-	var pcm: PackedByteArray = decompressed.get("uncompressed", PackedByteArray())
-	if pcm.is_empty(): return
-	
-	_remote_pcm_buffer.append_array(pcm)
-
-func _consume_remote_audio_frames() -> void:
-	if _remote_playback == null or _remote_pcm_buffer.is_empty():
+	if compressed_voice.is_empty():
 		return
 
-	var frames_available: int = _remote_playback.get_frames_available()
+	var decompressed: Dictionary = Steam.decompressVoice(compressed_voice, _sample_rate)
+	if decompressed.get("result", -1) != Steam.VOICE_RESULT_OK:
+		return
 
-	while frames_available > 0 and _remote_read_idx + 1 < _remote_pcm_buffer.size():
-		var lo: int = _remote_pcm_buffer[_remote_read_idx]
-		var hi: int = _remote_pcm_buffer[_remote_read_idx + 1]
-		
-		var raw_value: int = lo | (hi << 8)
-		if raw_value >= 32768: raw_value -= 65536
-		
-		var amplitude: float = clampf(float(raw_value) / 32768.0, -1.0, 1.0)
-		_remote_playback.push_frame(Vector2(amplitude, amplitude))
-		
-		_remote_read_idx += 2
-		frames_available -= 1
+	var pcm: PackedByteArray = decompressed.get("uncompressed", PackedByteArray())
+	if pcm.is_empty():
+		return
 
+	_remote_pcm_buffer.append_array(pcm)
+	_trim_remote_pcm_buffer()
+
+
+func _trim_remote_pcm_buffer() -> void:
+	var unread := _remote_pcm_buffer.size() - _remote_read_idx
+	if unread <= REMOTE_PCM_MAX_BYTES:
+		return
+	var drop := unread - REMOTE_PCM_MAX_BYTES
+	_remote_read_idx += drop
 	if _remote_read_idx >= _remote_pcm_buffer.size():
 		_remote_pcm_buffer.clear()
 		_remote_read_idx = 0
-	elif _remote_pcm_buffer.size() > 8192: 
-		_remote_pcm_buffer = _remote_pcm_buffer.slice(_remote_read_idx)
+		_remote_playback_primed = false
+
+
+func _remote_pcm_unread_bytes() -> int:
+	return _remote_pcm_buffer.size() - _remote_read_idx
+
+
+func _consume_remote_audio_frames() -> void:
+	if _remote_playback == null:
+		return
+
+	var unread := _remote_pcm_unread_bytes()
+	if not _remote_playback_primed:
+		if unread < REMOTE_PREBUFFER_BYTES:
+			return
+		_remote_playback_primed = true
+
+	var frames_available: int = _remote_playback.get_frames_available()
+	if frames_available <= 0:
+		return
+
+	if unread >= 2:
+		var samples_to_play := mini(unread / 2, frames_available)
+		var frames := PackedVector2Array()
+		frames.resize(samples_to_play)
+		for i in range(samples_to_play):
+			var lo: int = _remote_pcm_buffer[_remote_read_idx]
+			var hi: int = _remote_pcm_buffer[_remote_read_idx + 1]
+			var raw_value: int = lo | (hi << 8)
+			if raw_value >= 32768:
+				raw_value -= 65536
+			var amplitude: float = clampf(float(raw_value) / 32768.0, -1.0, 1.0)
+			frames[i] = Vector2(amplitude, amplitude)
+			_remote_read_idx += 2
+		_remote_playback.push_buffer(frames)
+	elif _remote_playback_primed:
+		var pad := mini(
+			frames_available,
+			int(_sample_rate * REMOTE_UNDERRUN_PAD_MS / 1000.0)
+		)
+		if pad > 0:
+			var silence := PackedVector2Array()
+			silence.resize(pad)
+			silence.fill(Vector2.ZERO)
+			_remote_playback.push_buffer(silence)
+
+	if _remote_read_idx >= _remote_pcm_buffer.size():
+		_remote_pcm_buffer.clear()
 		_remote_read_idx = 0

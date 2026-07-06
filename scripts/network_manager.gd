@@ -3,6 +3,9 @@ extends Node
 
 # ── 常量 ──
 const MAX_MEMBERS = 2
+## 语音专用 P2P 通道，与 SteamMultiplayerPeer 游戏流量分离
+const VOICE_P2P_CHANNEL: int = 3
+const VOICE_P2P_READ_LIMIT: int = 32
 
 # ── 网络状态 ──
 var steam_id: int = 0
@@ -69,6 +72,11 @@ func _init_steam() -> void:
 		if Steam.lobby_match_list.is_connected(_on_lobby_match_list):
 			Steam.lobby_match_list.disconnect(_on_lobby_match_list)
 		Steam.lobby_match_list.connect(_on_lobby_match_list)
+
+		if Steam.has_signal("p2p_session_request"):
+			if Steam.p2p_session_request.is_connected(_on_p2p_session_request):
+				Steam.p2p_session_request.disconnect(_on_p2p_session_request)
+			Steam.p2p_session_request.connect(_on_p2p_session_request)
 		
 	else:
 		# 如果初始化失败（比如 Steam 没开），会打印具体的失败原因
@@ -83,12 +91,47 @@ func is_trusted_sender(sender_id: int) -> bool:
 	if multiplayer.is_server(): return sender_id == remote_peer_id
 	return sender_id == 1
 
+func is_voice_link_ready() -> bool:
+	return _steam_ok and remote_steam_id != 0
+
 func send_voice_packet(packet: PackedByteArray) -> void:
-	if not is_multiplayer_game or packet.is_empty(): return
-	if multiplayer.is_server():
-		if remote_peer_id != 0: _receive_voice_packet.rpc_id(remote_peer_id, packet)
-	else:
-		_receive_voice_packet.rpc_id(1, packet)
+	if not is_voice_link_ready() or packet.is_empty():
+		return
+	_ensure_voice_p2p_session()
+	Steam.sendP2PPacket(
+		remote_steam_id,
+		packet,
+		Steam.P2P_SEND_UNRELIABLE_NO_DELAY,
+		VOICE_P2P_CHANNEL
+	)
+
+func poll_voice_packets() -> Array[PackedByteArray]:
+	var out: Array[PackedByteArray] = []
+	if not is_voice_link_ready():
+		return out
+	for _i in range(VOICE_P2P_READ_LIMIT):
+		var size := int(Steam.getAvailableP2PPacketSize(VOICE_P2P_CHANNEL))
+		if size <= 0:
+			break
+		var pkt: Dictionary = Steam.readP2PPacket(size, VOICE_P2P_CHANNEL)
+		var data: PackedByteArray = pkt.get("data", PackedByteArray())
+		if data.is_empty():
+			break
+		var from_id := int(pkt.get("steam_id_remote", 0))
+		if from_id != 0 and from_id != remote_steam_id:
+			continue
+		out.append(data)
+	return out
+
+func _ensure_voice_p2p_session() -> void:
+	if remote_steam_id == 0:
+		return
+	if Steam.has_method("acceptP2PSessionWithUser"):
+		Steam.acceptP2PSessionWithUser(remote_steam_id)
+
+func _on_p2p_session_request(remote_id: int) -> void:
+	if remote_steam_ids.has(remote_id) or remote_id == remote_steam_id:
+		Steam.acceptP2PSessionWithUser(remote_id)
 
 func generate_code() -> String:
 	var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -238,6 +281,9 @@ func _on_peer_connected(id: int) -> void:
 	if is_host:
 		guest_connected = true
 		player_connected.emit()
+	_ensure_voice_p2p_session()
+	if VoiceChatManager and VoiceChatManager.has_method("startup_voice"):
+		VoiceChatManager.startup_voice("peer_connected")
 
 # 【核心修复 5】参数名前加下划线，解决 "The parameter 'id' is never used" 警告
 func _on_peer_disconnected(_id: int) -> void:
@@ -282,13 +328,6 @@ func _code_result(ok: bool) -> void:
 		_stop_join_watch()
 	code_verified.emit(ok)
 	if not ok: close_room()
-
-@rpc("any_peer", "unreliable_ordered")
-func _receive_voice_packet(packet: PackedByteArray) -> void:
-	if packet.is_empty(): return
-	var sender_id = multiplayer.get_remote_sender_id()
-	if is_trusted_sender(sender_id):
-		VoiceChatManager.push_remote_voice_packet(packet)
 
 @rpc("authority", "reliable", "call_local")
 func start_game_all(host_role: int) -> void:

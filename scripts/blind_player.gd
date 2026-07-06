@@ -122,12 +122,15 @@ func _configure_vision_mask() -> void:
 	if vision_mask == null:
 		return
 	vision_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# 白色乘色，Alpha 完全由 Shader 输出；避免 ColorRect 默认色把洞糊成死黑
 	vision_mask.color = Color(1, 1, 1, 1)
 	if vision_mask.material is ShaderMaterial:
 		var mat := (vision_mask.material as ShaderMaterial).duplicate()
 		vision_mask.material = mat
 		_vision_mask_mat = mat
+		# 半圆孔：平直边在中下方，弧向上
+		mat.set_shader_parameter("vision_radius", 0.18)
+		mat.set_shader_parameter("feather", 0.08)
+		mat.set_shader_parameter("vision_center", Vector2(0.5, 0.68))
 
 
 func _exit_tree() -> void:
@@ -150,6 +153,9 @@ func _disable_scene_lights_for_blind_view() -> void:
 
 func _disable_lights_recursive(node: Node) -> void:
 	for child in node.get_children():
+		# 保留瞎子相机上的 SpotLight（玩法核心照明），只关场景环境灯
+		if child is SpotLight3D and child.name == "BlindSpotLight":
+			continue
 		if child is Light3D:
 			(child as Light3D).visible = false
 		_disable_lights_recursive(child)
@@ -184,7 +190,8 @@ func _process(delta: float) -> void:
 	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
 		var target_mh := GameManager.target_mental_health if NetworkManager.is_multiplayer_game and not multiplayer.is_server() else GameManager.mental_health
 		_display_mh = lerpf(_display_mh, target_mh, clampf(VISION_LERP_SPEED * delta, 0.0, 1.0))
-		_apply_vision_radius_from_display()
+		# [测试] 暂停心理值驱动圆孔，使用 tscn 默认 vision_radius=0.15
+		# _apply_vision_radius_from_display()
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
 	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
@@ -394,7 +401,8 @@ func _on_health(value: float) -> void:
 	health_label.text = "心理值: " + str(int(value)) + "%"
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		_display_mh = value
-	_apply_vision_radius_from_display()
+	# [测试] 暂停心理值驱动圆孔
+	# _apply_vision_radius_from_display()
 	if spot_light != null:
 		var ratio := clampf(_display_mh / GameManager.mental_health_max, 0.0, 1.0)
 		spot_light.light_energy = 1.0 + ratio * 1.5
@@ -402,18 +410,21 @@ func _on_health(value: float) -> void:
 
 func _setup_spot_light() -> void:
 	spot_light = SpotLight3D.new()
-	spot_light.light_color = Color(0.1, 0.1, 0.15)
+	spot_light.name = "BlindSpotLight"
+	spot_light.light_color = Color(0.85, 0.82, 0.75)
 	spot_light.light_energy = 2.0
-	spot_light.spot_range = 0.7
-	spot_light.spot_angle = 10.0
-	spot_light.spot_attenuation = 0.5
+	spot_light.spot_range = 12.0
+	spot_light.spot_angle = 45.0
+	spot_light.spot_attenuation = 0.6
 	spot_light.shadow_enabled = true
 	camera.add_child(spot_light)
 	var camera_env := Environment.new()
 	camera_env.background_mode = Environment.BG_COLOR
 	camera_env.background_color = Color(0, 0, 0)
-	camera_env.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED
-	camera_env.ambient_light_energy = 0.0
+	# 保留极低环境光，避免圆孔内除 Spot 外一片死黑
+	camera_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	camera_env.ambient_light_color = Color(0.04, 0.04, 0.05)
+	camera_env.ambient_light_energy = 0.15
 	camera_env.fog_enabled = false
 	camera.environment = camera_env
 
@@ -427,24 +438,26 @@ func _refresh_light() -> void:
 		spot_light.light_energy = 1.0 + ratio * 1.5
 
 
+## [测试] 原逻辑已注释：动态 vision_radius 会把圆孔压到 0 导致全黑，现改用 blind_player.tscn 默认 0.15
 func _apply_vision_radius_from_display() -> void:
-	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
-		return
-	var mh := _display_mh
-	var ratio := clampf(mh / GameManager.mental_health_max, 0.0, 1.0)
-	var mat := _vision_mask_mat
-	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
-		mat = vision_mask.material as ShaderMaterial
-		_vision_mask_mat = mat
-	if mat == null:
-		return
-	var target_radius := ratio * 0.18
-	if mh < 8.0:
-		target_radius = 0.0
-	var current_r: float = float(mat.get_shader_parameter("vision_radius"))
-	var new_r := lerpf(current_r, target_radius, 0.22)
-	if not is_equal_approx(new_r, current_r):
-		mat.set_shader_parameter("vision_radius", new_r)
+	pass
+#	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
+#		return
+#	var mh := _display_mh
+#	var ratio := clampf(mh / GameManager.mental_health_max, 0.0, 1.0)
+#	var mat := _vision_mask_mat
+#	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
+#		mat = vision_mask.material as ShaderMaterial
+#		_vision_mask_mat = mat
+#	if mat == null:
+#		return
+#	var target_radius := ratio * 0.18
+#	if mh < 8.0:
+#		target_radius = 0.0
+#	var current_r: float = float(mat.get_shader_parameter("vision_radius"))
+#	var new_r := lerpf(current_r, target_radius, 0.22)
+#	if not is_equal_approx(new_r, current_r):
+#		mat.set_shader_parameter("vision_radius", new_r)
 
 
 func _try_interact() -> void:
