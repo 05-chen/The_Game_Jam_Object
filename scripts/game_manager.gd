@@ -156,22 +156,46 @@ func solve_puzzle() -> void:
 	if puzzles_solved >= puzzles_required:
 		trigger_game_over(true)
 
-# [已修改] 触发游戏结束 - 增加网络同步
+# [已修改] 触发游戏结束 - 联机仅主机裁决后 call_local 广播；客户端只发请求
 func trigger_game_over(won: bool) -> void:
 	if is_game_over:
 		return
-	# 上帝模式下仅忽略失败，不影响胜利流程
+	if dev_invincible and not won:
+		return
+	if NetworkManager.is_multiplayer_game:
+		if not multiplayer.is_server():
+			_request_game_over.rpc_id(1, won)
+			return
+		_remote_game_over.rpc(won)
+		return
+	_apply_game_over_state(won)
+
+
+func _apply_game_over_state(won: bool) -> void:
+	if is_game_over:
+		return
 	if dev_invincible and not won:
 		return
 	is_game_over = true
 	is_game_won = won
 	is_game_active = false
 	game_over_triggered.emit(won)
-	# 多人模式下由 Authority 统一裁决并广播
-	if NetworkManager.is_multiplayer_game and multiplayer.is_server():
-		_remote_game_over.rpc(won)
-	elif NetworkManager.is_multiplayer_game:
-		_request_game_over.rpc_id(1, won)
+
+
+# [新增] 远程游戏结束 RPC：authority + call_local，主机裁决后两端同步生效
+@rpc("authority", "reliable", "call_local")
+func _remote_game_over(won: bool) -> void:
+	_apply_game_over_state(won)
+
+
+@rpc("any_peer", "reliable")
+func _request_game_over(won: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NetworkManager.is_trusted_sender(sender_id):
+		return
+	trigger_game_over(won)
 
 func save_checkpoint(blind_pos: Vector3, lame_pos: Vector3) -> void:
 	checkpoint_data = {
@@ -205,25 +229,6 @@ func set_dev_invincible(enabled: bool) -> void:
 func set_dev_pause(paused: bool) -> void:
 	dev_paused = paused
 	dev_pause_changed.emit(paused)
-
-# [新增] 远程游戏结束 RPC
-@rpc("authority", "reliable", "call_remote")
-func _remote_game_over(won: bool) -> void:
-	if is_game_over:
-		return
-	is_game_over = true
-	is_game_won = won
-	is_game_active = false
-	game_over_triggered.emit(won)
-
-@rpc("any_peer", "reliable")
-func _request_game_over(won: bool) -> void:
-	if not multiplayer.is_server():
-		return
-	var sender_id = multiplayer.get_remote_sender_id()
-	if not NetworkManager.is_trusted_sender(sender_id):
-		return
-	trigger_game_over(won)
 
 # 获取语音音量乘数函数
 func get_voice_multiplier() -> float:

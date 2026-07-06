@@ -11,6 +11,9 @@ var _ui_layer: CanvasLayer = null
 var _pause_panel: PanelContainer = null
 var _dev_label: Label = null
 var _fade_rect: ColorRect = null
+const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
+const SPAWN_RPC_FALLBACK_SEC: float = 5.0
+var _spawn_release_token: int = 0
 
 # 初始化函数
 func _ready() -> void:
@@ -77,13 +80,50 @@ func _spawn_players() -> void:
 
 
 func _schedule_spawn_release() -> void:
+	_spawn_release_token += 1
+	var token := _spawn_release_token
 	if not NetworkManager.is_multiplayer_game:
-		call_deferred("_release_players_from_spawn")
+		_spawn_release_after_warmup(token)
+		return
+	if multiplayer.is_server():
+		_spawn_release_after_warmup(token)
+	else:
+		_client_spawn_release_watchdog(token)
+
+
+func _spawn_release_after_warmup(token: int) -> void:
+	await _wait_physics_frames(SPAWN_PHYSICS_WARMUP_FRAMES)
+	if token != _spawn_release_token or not is_inside_tree():
+		return
+	if not NetworkManager.is_multiplayer_game:
+		_release_players_from_spawn()
 		return
 	if not multiplayer.is_server():
 		return
-	await get_tree().create_timer(2.0).timeout
 	_rpc_finish_spawning.rpc()
+
+
+func _wait_physics_frames(count: int) -> void:
+	for _i in count:
+		await get_tree().physics_frame
+
+
+func _client_spawn_release_watchdog(token: int) -> void:
+	await get_tree().create_timer(SPAWN_RPC_FALLBACK_SEC).timeout
+	if token != _spawn_release_token or not is_inside_tree():
+		return
+	if not _any_player_still_spawning():
+		return
+	push_warning("[GameWorld] spawn RPC 超时兜底：客户端本地解除 is_spawning")
+	_release_players_from_spawn()
+
+
+func _any_player_still_spawning() -> bool:
+	for player_name in ["BlindPlayer", "LamePlayer"]:
+		var player := get_node_or_null(player_name)
+		if player != null and player.is_spawning:
+			return true
+	return false
 
 
 @rpc("authority", "reliable", "call_local")
