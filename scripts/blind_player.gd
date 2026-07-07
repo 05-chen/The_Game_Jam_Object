@@ -26,6 +26,10 @@ const JUMP_VELOCITY: float = 4.5
 const INTERACT_RAY_MASK: int = 8
 const INTERACT_RANGE: float = 5.0
 const VISION_LERP_SPEED: float = 10.0
+## 心理值 100% 时半圆视野半径；0% 时缩至 VISION_RADIUS_MIN（不为 0，避免全黑）
+const VISION_RADIUS_MAX: float = 0.22
+const VISION_RADIUS_MIN: float = 0.05
+const VISION_RADIUS_LERP: float = 0.22
 ## 圆孔外：药物/钥匙等自发光物件的「幽灵高亮」阈值（越低越容易透出）
 const GHOST_LUM_THRESHOLD: float = 0.10
 const GHOST_LUM_SOFTNESS: float = 0.20
@@ -112,6 +116,7 @@ func _ready() -> void:
 	_setup_spot_light()
 	_display_mh = GameManager.mental_health
 	_refresh_light()
+	_apply_vision_radius_from_display()
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
 
@@ -131,8 +136,8 @@ func _configure_vision_mask() -> void:
 		var mat := (vision_mask.material as ShaderMaterial).duplicate()
 		vision_mask.material = mat
 		_vision_mask_mat = mat
-		# 半圆孔：平直边贴近屏幕底部，弧向上
-		mat.set_shader_parameter("vision_radius", 0.22)
+		# 半圆孔：平直边贴近屏幕底部，弧向上（半径由心理值动态驱动）
+		mat.set_shader_parameter("vision_radius", VISION_RADIUS_MAX)
 		mat.set_shader_parameter("feather", 0.06)
 		mat.set_shader_parameter("vision_bottom_y", 0.94)
 		# 圆孔外压黑区域：靠亮度阈值保留药物/钥匙等高自发光物件（见 medicine_item.gd emission）
@@ -197,8 +202,7 @@ func _process(delta: float) -> void:
 	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
 		var target_mh := GameManager.target_mental_health if NetworkManager.is_multiplayer_game and not multiplayer.is_server() else GameManager.mental_health
 		_display_mh = lerpf(_display_mh, target_mh, clampf(VISION_LERP_SPEED * delta, 0.0, 1.0))
-		# [测试] 暂停心理值驱动圆孔，使用 tscn 默认 vision_radius=0.15
-		# _apply_vision_radius_from_display()
+		_apply_vision_radius_from_display()
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
 	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
@@ -408,8 +412,7 @@ func _on_health(value: float) -> void:
 	health_label.text = "心理值: " + str(int(value)) + "%"
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		_display_mh = value
-	# [测试] 暂停心理值驱动圆孔
-	# _apply_vision_radius_from_display()
+	_apply_vision_radius_from_display()
 	if spot_light != null:
 		var ratio := clampf(_display_mh / GameManager.mental_health_max, 0.0, 1.0)
 		spot_light.light_energy = 1.0 + ratio * 1.5
@@ -445,26 +448,21 @@ func _refresh_light() -> void:
 		spot_light.light_energy = 1.0 + ratio * 1.5
 
 
-## [测试] 原逻辑已注释：动态 vision_radius 会把圆孔压到 0 导致全黑，现改用 blind_player.tscn 默认 0.15
 func _apply_vision_radius_from_display() -> void:
-	pass
-#	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
-#		return
-#	var mh := _display_mh
-#	var ratio := clampf(mh / GameManager.mental_health_max, 0.0, 1.0)
-#	var mat := _vision_mask_mat
-#	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
-#		mat = vision_mask.material as ShaderMaterial
-#		_vision_mask_mat = mat
-#	if mat == null:
-#		return
-#	var target_radius := ratio * 0.18
-#	if mh < 8.0:
-#		target_radius = 0.0
-#	var current_r: float = float(mat.get_shader_parameter("vision_radius"))
-#	var new_r := lerpf(current_r, target_radius, 0.22)
-#	if not is_equal_approx(new_r, current_r):
-#		mat.set_shader_parameter("vision_radius", new_r)
+	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
+		return
+	var ratio := clampf(_display_mh / GameManager.mental_health_max, 0.0, 1.0)
+	var mat := _vision_mask_mat
+	if mat == null and vision_mask and vision_mask.material is ShaderMaterial:
+		mat = vision_mask.material as ShaderMaterial
+		_vision_mask_mat = mat
+	if mat == null:
+		return
+	var target_radius := lerpf(VISION_RADIUS_MIN, VISION_RADIUS_MAX, ratio)
+	var current_r: float = float(mat.get_shader_parameter("vision_radius"))
+	var new_r := lerpf(current_r, target_radius, VISION_RADIUS_LERP)
+	if not is_equal_approx(new_r, current_r):
+		mat.set_shader_parameter("vision_radius", new_r)
 
 
 func _try_interact() -> void:

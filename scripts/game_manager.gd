@@ -86,8 +86,9 @@ func update_mental_health(delta: float) -> void:
 	if absf(mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON or (prev > 0.0 and mental_health <= 0.0):
 		_mental_last_emitted = mental_health
 		mental_health_changed.emit(mental_health)
-	if mental_health <= 0.0:
-		trigger_game_over(false)
+	# [测试用，已关闭] 心理值归零触发失败
+	# if mental_health <= 0.0:
+	# 	trigger_game_over(false)
 
 # 更新疼痛值函数 - 仅由本地瘸子玩家调用
 func update_pain(delta: float) -> void:
@@ -101,8 +102,9 @@ func update_pain(delta: float) -> void:
 	if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_prev != tier_now or pain_value >= pain_max:
 		_pain_last_emitted = pain_value
 		pain_value_changed.emit(pain_value)
-	if pain_value >= pain_max:
-		trigger_game_over(false)
+	# [测试用，已关闭] 疼痛值满触发失败
+	# if pain_value >= pain_max:
+	# 	trigger_game_over(false)
 
 # 增加心理值函数
 func add_mental_health(amount: float) -> void:
