@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://b3mct3rhx7ig5"]
 
-[ext_resource type="PackedScene" uid="uid://cgx8ymuo331s1" path="res://scenes/GamePlayScene/house.glb" id="1_d7po0"]
+[ext_resource type="PackedScene" uid="uid://drmgafgorto0t" path="res://scenes/GameModeScene/houseF1.glb" id="1_d7po0"]
 [ext_resource type="Script" uid="uid://c8lvlbase02sy" path="res://scripts/LevelSystem/LevelBase.gd" id="2_qtlar"]
 
 [node name="house" unique_id=464246422 instance=ExtResource("1_d7po0")]
