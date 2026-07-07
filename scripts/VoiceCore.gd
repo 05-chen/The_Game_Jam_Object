@@ -2,8 +2,10 @@ extends Node
 
 ## --- 基础配置 ---
 const DEFAULT_SAMPLE_RATE: int = 16000
-## 每帧从 Steam 麦克风队列最多读多少包（避免单帧饿死，但尽量 drain）
-const LOCAL_PACKET_READ_LIMIT: int = 32
+## 每帧从 Steam 麦克风队列最多读多少包
+const LOCAL_PACKET_READ_LIMIT: int = 16
+## 每帧最多解压多少包远端语音，避免单帧阻塞 Steam 网络线程
+const REMOTE_PACKET_DECODE_LIMIT: int = 8
 ## AudioStreamGenerator 内部缓冲（秒）：公网 P2P 抖动需更大，过小会欠载发糊
 const REMOTE_PLAYBACK_BUFFER_SEC: float = 0.25
 ## 开始播放前预缓冲（字节）：16kHz mono s16 ≈ 32000 B/s，6400≈200ms
@@ -36,6 +38,7 @@ var _runtime_enabled: bool = true
 ## 疼痛阶梯离散化后，仅在 Tier 变化时改麦克/远端增益，避免 pain_value_changed 每帧触发带来的音量微抖
 var _voice_tier_lame_local: int = -999
 var _voice_tier_blind_remote: int = -999
+var _voice_soft_paused: bool = false
 
 func _ready() -> void:
 	# 只允许 Autoload 单例实例运行语音主循环，避免场景内重复 VoiceCore 造成双录音/双播放
@@ -82,6 +85,10 @@ func _on_global_pain_for_voice(pain: float) -> void:
 
 func _process(delta: float) -> void:
 	if not _runtime_enabled:
+		if _is_recording:
+			_set_recording(false)
+		return
+	if _voice_soft_paused:
 		if _is_recording:
 			_set_recording(false)
 		return
@@ -142,19 +149,25 @@ func _update_recording_state() -> void:
 		_set_recording(should_record)
 
 func _set_recording(enable: bool) -> void:
+	if _is_recording == enable:
+		return
 	_is_recording = enable
 	if enable:
 		Steam.startVoiceRecording()
+		if NetworkManager.steam_id != 0:
+			Steam.setInGameVoiceSpeaking(NetworkManager.steam_id, true)
 	else:
 		Steam.stopVoiceRecording()
+		if NetworkManager.steam_id != 0:
+			Steam.setInGameVoiceSpeaking(NetworkManager.steam_id, false)
 
 func stop_voice_capture(reason: String = "") -> void:
 	shutdown_voice(reason if reason != "" else "stop_voice_capture")
 
 func shutdown_voice(reason: String = "") -> void:
-	if not _runtime_enabled and not _is_recording:
+	if not _runtime_enabled and not _is_recording and not _voice_soft_paused:
 		return
-	print("[Voice] shutdown_voice reason=", reason)
+	_voice_soft_paused = false
 	_runtime_enabled = false
 	if _is_recording:
 		_set_recording(false)
@@ -166,26 +179,61 @@ func shutdown_voice(reason: String = "") -> void:
 	if _remote_player:
 		_remote_player.volume_db = -80.0
 	is_disabled_by_pain = false
-	if _remote_player and _remote_player.playing:
-		_remote_player.stop()
+	# 不 stop() 播放器，避免 Windows WASAPI 设备反复开关导致 GetBufferSize 错误
+
+func pause_voice(reason: String = "") -> void:
+	if _voice_soft_paused:
+		return
+	_voice_soft_paused = true
+	if _is_recording:
+		_set_recording(false)
+	_remote_pcm_buffer.clear()
+	_remote_read_idx = 0
+	_remote_playback_primed = false
+	if _remote_player:
+		_remote_player.volume_db = -80.0
+
+func resume_voice(reason: String = "") -> void:
+	if not _runtime_enabled:
+		startup_voice(reason if reason != "" else "resume_voice")
+		return
+	if not _voice_soft_paused:
+		return
+	_voice_soft_paused = false
+	_remote_playback_primed = false
+	_ensure_remote_playback_ready()
+	if _remote_player:
+		_remote_player.volume_db = _remote_smoothed_db
+	_on_global_pain_for_voice(GameManager.pain_value)
 
 func startup_voice(reason: String = "") -> void:
-	if _runtime_enabled:
+	if _runtime_enabled and not _voice_soft_paused:
 		return
-	print("[Voice] startup_voice reason=", reason)
 	NetworkManager._ensure_voice_p2p_session()
 	_runtime_enabled = true
+	_voice_soft_paused = false
 	_voice_transmit_enabled = true
 	_remote_target_db = 0.0
 	_remote_smoothed_db = 0.0
 	_voice_tier_lame_local = -999
 	_voice_tier_blind_remote = -999
 	_remote_playback_primed = false
+	_ensure_remote_playback_ready()
 	if _remote_player:
 		_remote_player.volume_db = 0.0
-		if not _remote_player.playing:
-			_remote_player.play()
 	_on_global_pain_for_voice(GameManager.pain_value)
+
+func _ensure_remote_playback_ready() -> void:
+	if _remote_player == null:
+		_setup_remote_audio_player()
+		return
+	if not _remote_player.playing:
+		_remote_player.play()
+	_remote_playback = _remote_player.get_stream_playback()
+	if _remote_playback == null:
+		_remote_player.stop()
+		_remote_player.play()
+		_remote_playback = _remote_player.get_stream_playback()
 
 func set_local_pain_voice_policy(pain: float) -> void:
 	# 与 GameManager.pain_to_voice_tier 一致：仅 Tier0（疼痛>=100 濒死）彻底禁麦
@@ -219,8 +267,12 @@ func _poll_and_send_local_voice() -> void:
 		NetworkManager.send_voice_packet(packet)
 
 func _poll_receive_voice_p2p() -> void:
+	var decoded := 0
 	for packet in NetworkManager.poll_voice_packets():
 		push_remote_voice_packet(packet)
+		decoded += 1
+		if decoded >= REMOTE_PACKET_DECODE_LIMIT:
+			break
 
 func push_remote_voice_packet(compressed_voice: PackedByteArray) -> void:
 	if compressed_voice.is_empty():
@@ -270,17 +322,15 @@ func _consume_remote_audio_frames() -> void:
 
 	if unread >= 2:
 		var samples_to_play := mini(unread / 2, frames_available)
+		var byte_len := samples_to_play * 2
+		var chunk := _remote_pcm_buffer.slice(_remote_read_idx, _remote_read_idx + byte_len)
 		var frames := PackedVector2Array()
 		frames.resize(samples_to_play)
 		for i in range(samples_to_play):
-			var lo: int = _remote_pcm_buffer[_remote_read_idx]
-			var hi: int = _remote_pcm_buffer[_remote_read_idx + 1]
-			var raw_value: int = lo | (hi << 8)
-			if raw_value >= 32768:
-				raw_value -= 65536
-			var amplitude: float = clampf(float(raw_value) / 32768.0, -1.0, 1.0)
+			var sample_int: int = chunk.decode_s16(i * 2)
+			var amplitude: float = clampf(float(sample_int) / 32768.0, -1.0, 1.0)
 			frames[i] = Vector2(amplitude, amplitude)
-			_remote_read_idx += 2
+		_remote_read_idx += byte_len
 		_remote_playback.push_buffer(frames)
 	elif _remote_playback_primed:
 		var pad := mini(
