@@ -46,6 +46,7 @@ func _ready() -> void:
 func _setup_look() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.emission_enabled = true
+	mat.emission_energy_multiplier = 2.5
 	if medicine_type == TYPE_MENTAL:
 		mat.albedo_color = Color(0.2, 0.6, 1.0)
 		mat.emission = Color(0.2, 0.6, 1.0)

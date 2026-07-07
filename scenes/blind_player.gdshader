@@ -7,8 +7,8 @@ uniform float vision_radius : hint_range(0.0, 1.0) = 0.22;
 uniform float feather : hint_range(0.0, 1.0) = 0.06;
 // 半圆平直边所在的纵向位置（1.0=屏幕最底，越大越靠下）
 uniform float vision_bottom_y : hint_range(0.0, 1.0) = 0.94;
-uniform float ghost_lum_threshold : hint_range(0.0, 1.0) = 0.16;
-uniform float ghost_lum_softness : hint_range(0.01, 0.5) = 0.14;
+uniform float ghost_lum_threshold : hint_range(0.0, 1.0) = 0.10;
+uniform float ghost_lum_softness : hint_range(0.01, 0.5) = 0.20;
 
 void fragment() {
 	vec2 uv = SCREEN_UV;

@@ -26,6 +26,9 @@ const JUMP_VELOCITY: float = 4.5
 const INTERACT_RAY_MASK: int = 8
 const INTERACT_RANGE: float = 5.0
 const VISION_LERP_SPEED: float = 10.0
+## 圆孔外：药物/钥匙等自发光物件的「幽灵高亮」阈值（越低越容易透出）
+const GHOST_LUM_THRESHOLD: float = 0.10
+const GHOST_LUM_SOFTNESS: float = 0.20
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var is_local: bool = false
@@ -104,6 +107,7 @@ func _ready() -> void:
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
+		# 场景灯全关后，仅 SpotLight 照亮圆孔内；圆孔外靠 shader ghost_lum 显示高亮交互物
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
 	_display_mh = GameManager.mental_health
@@ -131,6 +135,9 @@ func _configure_vision_mask() -> void:
 		mat.set_shader_parameter("vision_radius", 0.22)
 		mat.set_shader_parameter("feather", 0.06)
 		mat.set_shader_parameter("vision_bottom_y", 0.94)
+		# 圆孔外压黑区域：靠亮度阈值保留药物/钥匙等高自发光物件（见 medicine_item.gd emission）
+		mat.set_shader_parameter("ghost_lum_threshold", GHOST_LUM_THRESHOLD)
+		mat.set_shader_parameter("ghost_lum_softness", GHOST_LUM_SOFTNESS)
 
 
 func _exit_tree() -> void:

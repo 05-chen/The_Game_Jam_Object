@@ -18,6 +18,8 @@ shader = ExtResource("2_5e0yh")
 shader_parameter/vision_radius = 0.22
 shader_parameter/feather = 0.06
 shader_parameter/vision_bottom_y = 0.94
+shader_parameter/ghost_lum_threshold = 0.10
+shader_parameter/ghost_lum_softness = 0.20
 
 [sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_sync"]
 properties/0/path = NodePath(".:global_position")
