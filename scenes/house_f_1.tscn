@@ -1,0 +1,5 @@
+[gd_scene format=3 uid="uid://jhig2rttyutv"]
+
+[ext_resource type="PackedScene" uid="uid://drmgafgorto0t" path="res://scenes/GameModeScene_One/houseF1.glb" id="1_bgg21"]
+
+[node name="houseF1" unique_id=1977836609 instance=ExtResource("1_bgg21")]
