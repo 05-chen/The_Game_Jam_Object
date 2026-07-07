@@ -2,5 +2,6 @@
 .godot/
 /android/
 
-# 大型关卡资源（~2GB）：本地放置或由队友私下同步，不进 GitHub
+# 大型关卡/场景模型资源：本地放置或由队友私下同步，不进 GitHub
 scenes/GamePlayScene/
+scenes/GameModeScene/

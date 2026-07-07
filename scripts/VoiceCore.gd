@@ -164,7 +164,7 @@ func _set_recording(enable: bool) -> void:
 func stop_voice_capture(reason: String = "") -> void:
 	shutdown_voice(reason if reason != "" else "stop_voice_capture")
 
-func shutdown_voice(reason: String = "") -> void:
+func shutdown_voice(_reason: String = "") -> void:
 	if not _runtime_enabled and not _is_recording and not _voice_soft_paused:
 		return
 	_voice_soft_paused = false
@@ -181,7 +181,7 @@ func shutdown_voice(reason: String = "") -> void:
 	is_disabled_by_pain = false
 	# 不 stop() 播放器，避免 Windows WASAPI 设备反复开关导致 GetBufferSize 错误
 
-func pause_voice(reason: String = "") -> void:
+func pause_voice(_reason: String = "") -> void:
 	if _voice_soft_paused:
 		return
 	_voice_soft_paused = true
@@ -206,7 +206,7 @@ func resume_voice(reason: String = "") -> void:
 		_remote_player.volume_db = _remote_smoothed_db
 	_on_global_pain_for_voice(GameManager.pain_value)
 
-func startup_voice(reason: String = "") -> void:
+func startup_voice(_reason: String = "") -> void:
 	if _runtime_enabled and not _voice_soft_paused:
 		return
 	NetworkManager._ensure_voice_p2p_session()
@@ -321,7 +321,7 @@ func _consume_remote_audio_frames() -> void:
 		return
 
 	if unread >= 2:
-		var samples_to_play := mini(unread / 2, frames_available)
+		var samples_to_play := mini(unread >> 1, frames_available)
 		var byte_len := samples_to_play * 2
 		var chunk := _remote_pcm_buffer.slice(_remote_read_idx, _remote_read_idx + byte_len)
 		var frames := PackedVector2Array()
