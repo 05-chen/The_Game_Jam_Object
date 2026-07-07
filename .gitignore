@@ -1,3 +1,6 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# 大型关卡资源（~2GB）：本地放置或由队友私下同步，不进 GitHub
+scenes/GamePlayScene/
