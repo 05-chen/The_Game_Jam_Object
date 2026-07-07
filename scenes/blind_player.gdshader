@@ -1,26 +1,27 @@
 shader_type canvas_item;
-// 半圆孔：平直边在 vision_center 水平线，弧向上；孔外压黑，高亮物品幽灵透出
+// 半圆视野：平直边贴在屏幕下方，弧顶向上（Godot SCREEN_UV：y=0 顶，y=1 底）
 render_mode unshaded, blend_mix;
 
 uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear_mipmap;
-uniform float vision_radius : hint_range(0.0, 1.0) = 0.18;
-uniform float feather : hint_range(0.0, 1.0) = 0.08;
-// 半圆直径中点：屏幕水平正中、偏下方（y 越大越靠屏幕底部）
-uniform vec2 vision_center = vec2(0.5, 0.68);
+uniform float vision_radius : hint_range(0.0, 1.0) = 0.22;
+uniform float feather : hint_range(0.0, 1.0) = 0.06;
+// 半圆平直边所在的纵向位置（1.0=屏幕最底，越大越靠下）
+uniform float vision_bottom_y : hint_range(0.0, 1.0) = 0.94;
 uniform float ghost_lum_threshold : hint_range(0.0, 1.0) = 0.16;
 uniform float ghost_lum_softness : hint_range(0.01, 0.5) = 0.14;
 
 void fragment() {
 	vec2 uv = SCREEN_UV;
+	vec2 center = vec2(0.5, vision_bottom_y);
 	float aspect = SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
-	vec2 delta = uv - vision_center;
+	vec2 delta = uv - center;
 	delta.x *= aspect;
 	float dist = length(delta);
 
-	// 圆弧外缘羽化
+	// 圆外 → 遮罩
 	float arc_mask = smoothstep(vision_radius, vision_radius + feather, dist);
-	// 半圆：裁掉圆心下方（平直边在 vision_center.y）
-	float flat_mask = smoothstep(vision_center.y - feather * 0.35, vision_center.y + feather * 0.35, uv.y);
+	// 平直边以下 → 遮罩（只保留圆心以上的半圆，即屏幕下方拱形孔）
+	float flat_mask = smoothstep(vision_bottom_y - feather * 0.35, vision_bottom_y + feather * 0.35, uv.y);
 	float mask = max(arc_mask, flat_mask);
 
 	vec3 scene = texture(screen_texture, uv).rgb;

@@ -127,10 +127,10 @@ func _configure_vision_mask() -> void:
 		var mat := (vision_mask.material as ShaderMaterial).duplicate()
 		vision_mask.material = mat
 		_vision_mask_mat = mat
-		# 半圆孔：平直边在中下方，弧向上
-		mat.set_shader_parameter("vision_radius", 0.18)
-		mat.set_shader_parameter("feather", 0.08)
-		mat.set_shader_parameter("vision_center", Vector2(0.5, 0.68))
+		# 半圆孔：平直边贴近屏幕底部，弧向上
+		mat.set_shader_parameter("vision_radius", 0.22)
+		mat.set_shader_parameter("feather", 0.06)
+		mat.set_shader_parameter("vision_bottom_y", 0.94)
 
 
 func _exit_tree() -> void:
