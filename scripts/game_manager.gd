@@ -26,6 +26,8 @@ var is_game_over: bool = false
 var is_game_won: bool = false
 var puzzles_solved: int = 0
 var puzzles_required: int = 3
+## true 时：集齐钥匙触发 stage_cleared（测试关→大场景），而非整局胜利
+var advance_to_main_on_puzzle_clear: bool = false
 var blind_medicines: int = 0
 var lame_painkillers: int = 0
 var checkpoint_data: Dictionary = {}
@@ -47,6 +49,7 @@ signal mental_health_changed(value: float)
 signal pain_value_changed(value: float)
 signal game_over_triggered(won: bool)
 signal puzzle_solved(total: int)
+signal stage_cleared()
 signal medicine_collected(role: int)
 signal checkpoint_saved()
 signal dev_invincible_changed(enabled: bool)
@@ -69,6 +72,7 @@ func reset_game() -> void:
 	dev_invincible = false
 	dev_paused = false
 	checkpoint_data = {}
+	advance_to_main_on_puzzle_clear = false
 	_mental_last_emitted = mental_health_max
 	_pain_last_emitted = 0.0
 	target_mental_health = mental_health_max
@@ -156,6 +160,12 @@ func solve_puzzle() -> void:
 	puzzles_solved += 1
 	puzzle_solved.emit(puzzles_solved)
 	if puzzles_solved >= puzzles_required:
+		# 测试关通关 → 由 GameWorld 切到美术大场景，不算整局胜利
+		if advance_to_main_on_puzzle_clear:
+			advance_to_main_on_puzzle_clear = false
+			if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
+				stage_cleared.emit()
+			return
 		trigger_game_over(true)
 
 # [已修改] 触发游戏结束 - 联机仅主机裁决后 call_local 广播；客户端只发请求

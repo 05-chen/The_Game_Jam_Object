@@ -2,8 +2,33 @@
 # [已修改] 多人模式下生成双方玩家 + 远程代理可视化
 # [已修改] 物品使用确定性命名以保证 RPC 路径一致
 # [已修改] Ghost 区分 Host/Client 控制
+# [已修改] 从关卡 PlayerSpawnPoint 读取出生点，Host 权威 + RPC 同步
+# [已修改] 先 room_builder 测试关，集齐钥匙后切 house_f_1 大场景
 
 extends Node3D
+
+enum GamePhase { TUTORIAL, MAIN }
+
+## ── 编辑器绑定（选中 GameWorld 根节点后在 Inspector 里拖入）──
+@export_group("关卡")
+## 美术大场景（通关测试关后进入）
+@export var level_scene: PackedScene = preload("res://scenes/house_f_1.tscn")
+## 勾选则跳过测试关，直接进入大场景（调试用）
+@export var skip_tutorial: bool = false
+
+@export_group("玩家 Prefab")
+@export var blind_player_scene: PackedScene = preload("res://scenes/blind_player.tscn")
+@export var lame_player_scene: PackedScene = preload("res://scenes/lame_player.tscn")
+
+const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
+const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
+const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
+const DEFAULT_SPAWN := Vector3(0, 1, 0)
+
+var _phase: GamePhase = GamePhase.TUTORIAL
+var _room_node: Node3D = null
+var _level_node: Node3D = null
+var _entering_main_level: bool = false
 
 var _item_idx: int = 0  # 物品命名计数器
 var _ghost_spawn_positions: Dictionary = {}
@@ -14,69 +39,212 @@ var _fade_rect: ColorRect = null
 const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
 var _spawn_release_token: int = 0
+var _players_spawned: bool = false
 
 # 初始化函数
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_build_room()
-	_spawn_players()
-	_spawn_items()
-	#_spawn_ghost()
 	_setup_demo_ui()
-	_ensure_checkpoint_trigger()
+	_build_room()
+	await get_tree().process_frame
+	await _init_players_from_spawn_point()
+	if _phase == GamePhase.TUTORIAL:
+		GameManager.advance_to_main_on_puzzle_clear = true
+		_spawn_items()
+		_ensure_checkpoint_trigger()
+	else:
+		GameManager.advance_to_main_on_puzzle_clear = false
 	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
+	GameManager.stage_cleared.connect(_on_tutorial_stage_cleared)
 	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
 	_schedule_spawn_release()
 
-# 构建房间函数 - 不变
+# 测试关 room_builder，或调试时跳过测试关直接进大场景
 func _build_room() -> void:
-	var scr = load("res://scripts/room_builder.gd")
-	var room = Node3D.new()
-	room.set_script(scr)
+	if skip_tutorial and level_scene:
+		_phase = GamePhase.MAIN
+		_load_main_level_scene()
+		return
+	_phase = GamePhase.TUTORIAL
+	var room := Node3D.new()
+	room.name = "TutorialRoom"
+	room.set_script(load("res://scripts/room_builder.gd"))
 	add_child(room)
+	_room_node = room
 
-func _spawn_players() -> void:
+
+func _load_main_level_scene() -> void:
+	if _level_node != null and is_instance_valid(_level_node):
+		return
+	if level_scene == null:
+		push_error("[GameWorld] level_scene 未绑定")
+		return
+	var level := level_scene.instantiate()
+	level.name = "Level"
+	add_child(level)
+	_level_node = level
+
+
+## 当前阶段应使用的出生坐标
+func _resolve_spawn_position() -> Vector3:
+	if _phase == GamePhase.TUTORIAL:
+		return TUTORIAL_BLIND_SPAWN
+	var marker := find_child(SPAWN_POINT_NAME, true, false) as Node3D
+	if marker:
+		return marker.global_position
+	push_warning("[GameWorld] 大场景未找到 %s，使用默认坐标" % SPAWN_POINT_NAME)
+	return DEFAULT_SPAWN
+
+
+## 联机：Host 读出生点 → 本地生成 → RPC 通知 Client
+func _init_players_from_spawn_point() -> void:
+	if _players_spawned:
+		return
+	var spawn_pos := _resolve_spawn_position()
+	if NetworkManager.is_multiplayer_game:
+		if multiplayer.is_server():
+			_spawn_players_at(spawn_pos)
+			_rpc_spawn_players_at.rpc(spawn_pos)
+		else:
+			while not _players_spawned:
+				await get_tree().process_frame
+	else:
+		_spawn_players_at(spawn_pos)
+
+
+@rpc("authority", "reliable", "call_remote")
+func _rpc_spawn_players_at(spawn_pos: Vector3) -> void:
+	# 仅 Client 收到；两端节点名必须一致，后续 RPC 路径才相同
+	_spawn_players_at(spawn_pos)
+
+
+func _spawn_players_at(spawn_pos: Vector3) -> void:
+	if _players_spawned:
+		return
+	_players_spawned = true
 	var is_mp = NetworkManager.is_multiplayer_game
 	var peer_id := 0
 	if multiplayer.multiplayer_peer != null:
 		peer_id = multiplayer.get_unique_id()
-	print("[GameWorld] 开始生成角色，模式：", "多人" if is_mp else "单人", " current_role=", GameManager.current_role, " peer_id=", peer_id)
+	print("[GameWorld] 出生点=", spawn_pos, " 模式=", "多人" if is_mp else "单人",
+		" role=", GameManager.current_role, " peer=", peer_id)
 
 	if not is_mp:
-		var path = "res://scenes/blind_player.tscn" if GameManager.current_role == GameManager.ROLE_BLIND else "res://scenes/lame_player.tscn"
-		var player = load(path).instantiate()
+		var player_scene := blind_player_scene if GameManager.current_role == GameManager.ROLE_BLIND else lame_player_scene
+		var player = player_scene.instantiate()
 		player.is_local = true
-		player.position = Vector3(0, 1, 0) if GameManager.current_role == GameManager.ROLE_BLIND else Vector3(2, 1, 0)
+		player.global_position = spawn_pos
 		add_child(player)
+		return
+
+	var blind = blind_player_scene.instantiate()
+	var lame = lame_player_scene.instantiate()
+	blind.name = "BlindPlayer"
+	lame.name = "LamePlayer"
+	blind.is_local = (GameManager.current_role == GameManager.ROLE_BLIND)
+	lame.is_local = (GameManager.current_role == GameManager.ROLE_LAME)
+	blind.set_multiplayer_authority(1)
+	add_child(blind)
+	add_child(lame)
+	blind.global_position = spawn_pos
+	if _phase == GamePhase.TUTORIAL and is_mp:
+		lame.global_position = TUTORIAL_LAME_SPAWN
 	else:
-		# ── 多人模式：核心修复 ──
-		var blind = load("res://scenes/blind_player.tscn").instantiate()
-		var lame = load("res://scenes/lame_player.tscn").instantiate()
+		lame.global_position = spawn_pos
 
-		# 【关键修复 1】强制唯一且一致的命名
-		# 即使是本地玩家，也要确保两端的节点路径都是 /root/GameWorld/BlindPlayer
-		blind.name = "BlindPlayer"
-		lame.name = "LamePlayer"
+	if not blind.is_local and not multiplayer.is_server():
+		_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
+	elif not blind.is_local and multiplayer.is_server():
+		_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))
+	if not lame.is_local:
+		_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
 
-		# 【关键修复 2】在 add_child 之前设置 is_local
-		# 这样当节点进入场景树触发 _ready 时，它已经知道自己是本地还是远程了
-		blind.is_local = (GameManager.current_role == GameManager.ROLE_BLIND)
-		lame.is_local = (GameManager.current_role == GameManager.ROLE_LAME)
-		print("[GameWorld] player role map: blind.is_local=", blind.is_local, " lame.is_local=", lame.is_local)
-		blind.set_multiplayer_authority(1)
-		add_child(blind)
-		add_child(lame)
-		blind.position = Vector3(0, 1, 0)
-		lame.position = Vector3(2, 1, 0)
 
-		# 【关键修复 3】远程实体：仅客户端上的远程代理关碰撞；主机代算瞎子必须保留碰撞
-		if not blind.is_local and not multiplayer.is_server():
-			_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
-		elif not blind.is_local and multiplayer.is_server():
-			_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))
-		if not lame.is_local:
-			_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
+## 测试关集齐钥匙 → Host 发起切关
+func _on_tutorial_stage_cleared() -> void:
+	if _phase != GamePhase.TUTORIAL or _entering_main_level:
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	_rpc_enter_main_level.rpc()
+
+
+@rpc("authority", "reliable", "call_local")
+func _rpc_enter_main_level() -> void:
+	if _phase != GamePhase.TUTORIAL or _entering_main_level:
+		return
+	_entering_main_level = true
+	_enter_main_level()
+
+
+func _enter_main_level() -> void:
+	await _fade_out(0.4)
+	_clear_tutorial_content()
+	_phase = GamePhase.MAIN
+	GameManager.advance_to_main_on_puzzle_clear = false
+	GameManager.puzzles_solved = 0
+	_load_main_level_scene()
+	await get_tree().process_frame
+	var spawn_pos := _resolve_spawn_position()
+	_reposition_players(spawn_pos)
+	_save_checkpoint_now()
+	await _fade_in(0.4)
+	_entering_main_level = false
+	_show_stage_msg("测试关完成，进入医院...")
+
+
+func _clear_tutorial_content() -> void:
+	if _room_node != null and is_instance_valid(_room_node):
+		_room_node.queue_free()
+		_room_node = null
+	var checkpoint := get_node_or_null("Checkpoint")
+	if checkpoint:
+		checkpoint.queue_free()
+	for child in get_children():
+		if String(child.name).begins_with("Item_"):
+			child.queue_free()
+
+
+func _reposition_players(spawn_pos: Vector3) -> void:
+	var blind := get_node_or_null("BlindPlayer") as Node3D
+	var lame := get_node_or_null("LamePlayer") as Node3D
+	if blind:
+		blind.global_position = spawn_pos
+		if blind is CharacterBody3D:
+			(blind as CharacterBody3D).velocity = Vector3.ZERO
+	if lame:
+		lame.global_position = spawn_pos
+		if lame is CharacterBody3D:
+			(lame as CharacterBody3D).velocity = Vector3.ZERO
+
+
+func _show_stage_msg(text: String) -> void:
+	for player_name in ["BlindPlayer", "LamePlayer"]:
+		var player := get_node_or_null(player_name)
+		if player != null and player.has_method("_show_msg"):
+			player.call("_show_msg", text)
+
+
+func _fade_out(duration: float) -> void:
+	if _fade_rect == null:
+		await get_tree().create_timer(duration).timeout
+		return
+	_fade_rect.visible = true
+	_fade_rect.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(_fade_rect, "modulate:a", 1.0, duration)
+	await tw.finished
+
+
+func _fade_in(duration: float) -> void:
+	if _fade_rect == null:
+		await get_tree().create_timer(duration).timeout
+		return
+	var tw := create_tween()
+	tw.tween_property(_fade_rect, "modulate:a", 0.0, duration)
+	await tw.finished
+	_fade_rect.visible = false
 
 
 func _schedule_spawn_release() -> void:

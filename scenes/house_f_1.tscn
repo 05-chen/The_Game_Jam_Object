@@ -5,3 +5,6 @@
 
 [node name="houseF1" unique_id=1977836609 instance=ExtResource("1_bgg21")]
 script = ExtResource("2_level")
+
+[node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
