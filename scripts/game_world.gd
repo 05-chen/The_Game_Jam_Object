@@ -90,7 +90,8 @@ func _load_main_level_scene() -> void:
 func _resolve_spawn_position() -> Vector3:
 	if _phase == GamePhase.TUTORIAL:
 		return TUTORIAL_BLIND_SPAWN
-	var marker := find_child(SPAWN_POINT_NAME, true, false) as Node3D
+	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else self
+	var marker := search_root.find_child(SPAWN_POINT_NAME, true, false) as Node3D
 	if marker:
 		return marker.global_position
 	push_warning("[GameWorld] 大场景未找到 %s，使用默认坐标" % SPAWN_POINT_NAME)
@@ -161,13 +162,16 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 		_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
 
 
-## 测试关集齐钥匙 → Host 发起切关
+## 测试关集齐钥匙 → Host 发起切关；单机无 multiplayer peer，直接本地切关
 func _on_tutorial_stage_cleared() -> void:
 	if _phase != GamePhase.TUTORIAL or _entering_main_level:
 		return
-	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
-		return
-	_rpc_enter_main_level.rpc()
+	if NetworkManager.is_multiplayer_game:
+		if not multiplayer.is_server():
+			return
+		_rpc_enter_main_level.rpc()
+	else:
+		_rpc_enter_main_level()
 
 
 @rpc("authority", "reliable", "call_local")

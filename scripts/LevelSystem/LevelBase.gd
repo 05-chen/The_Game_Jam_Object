@@ -25,6 +25,8 @@ const GROUP_PATROL := "lvl_patrol"
 @export var auto_static_body_collision_mask: int = 0
 ## 非空时：为所有 StaticBody3D 额外 add_to_group（便于玩法脚本用 get_nodes_in_group 收集）
 @export var static_body_extra_group: String = ""
+## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成三角网格碰撞（StaticBody3D，与 room_builder 同为静态环境）
+@export var generate_mesh_trimesh_collision: bool = false
 
 
 func _ready() -> void:
@@ -37,6 +39,8 @@ func _ready() -> void:
 func _post_configure_imported_scene() -> void:
 	if apply_spawn_patrol_by_name:
 		_register_spawn_patrol_groups_by_name(self)
+	if generate_mesh_trimesh_collision:
+		_generate_trimesh_collisions_from_meshes()
 	if auto_static_body_collision_layer != 0 or auto_static_body_collision_mask != 0 or static_body_extra_group.strip_edges() != "":
 		_apply_static_body_physics_and_groups(self)
 
@@ -63,6 +67,31 @@ func _begins_with_any_prefix(node_name: String, prefixes: PackedStringArray) -> 
 		if prefix != "" and node_name.begins_with(prefix):
 			return true
 	return false
+
+
+func _generate_trimesh_collisions_from_meshes() -> void:
+	if not find_children("*", "StaticBody3D", true, false).is_empty():
+		return
+	var env_layer := auto_static_body_collision_layer if auto_static_body_collision_layer != 0 else 1
+	for mesh_node in find_children("*", "MeshInstance3D", true, false):
+		var mi := mesh_node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var shape := mi.mesh.create_trimesh_shape()
+		if shape == null:
+			continue
+		var body := StaticBody3D.new()
+		body.name = String(mi.name) + "_Phys"
+		body.collision_layer = env_layer
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		body.add_child(cs)
+		var parent := mi.get_parent()
+		if parent == null:
+			body.queue_free()
+			continue
+		parent.add_child(body)
+		body.transform = mi.transform
 
 
 func _apply_static_body_physics_and_groups(node: Node) -> void:
