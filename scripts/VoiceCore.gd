@@ -3,7 +3,7 @@ extends Node
 ## --- 基础配置（对齐 GodotSteam Voice 教程）---
 ## Windows 音频设备原生率多为 48000；16kHz 会导致播放发糊、断续
 const DEFAULT_SAMPLE_RATE: int = 48000
-## getVoice 压缩缓冲（0 = 由 GodotSteam 按 getAvailableVoice 自动扩容）
+## getVoice 压缩缓冲（0 = GodotSteam 内部按可用数据自动扩容）
 const GET_VOICE_BUFFER_SIZE: int = 0
 ## decompressVoice 初始缓冲；过小会 VOICE_RESULT_BUFFER_TOO_SMALL 并丢包
 const DECOMPRESS_BUFFER_SIZE: int = 65536
@@ -266,13 +266,7 @@ func _poll_and_send_local_voice() -> void:
 	if not _voice_transmit_enabled:
 		return
 	for _i in range(LOCAL_PACKET_READ_LIMIT):
-		if Steam.has_method("getAvailableVoice"):
-			var available: Dictionary = Steam.getAvailableVoice()
-			if available.get("result", -1) != Steam.VOICE_RESULT_OK:
-				break
-			if int(available.get("size", 0)) <= 0:
-				break
-
+		# 勿直接写 Steam.getAvailableVoice()：4.16~4.18 无此 API，且 GDScript 编译期会报错
 		var voice_data: Dictionary = Steam.getVoice(GET_VOICE_BUFFER_SIZE)
 		if voice_data.get("result", -1) != Steam.VOICE_RESULT_OK:
 			break
