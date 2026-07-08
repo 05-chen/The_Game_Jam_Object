@@ -45,6 +45,9 @@ var _voice_tier_lame_local: int = -999
 var _voice_tier_blind_remote: int = -999
 var _voice_soft_paused: bool = false
 var _decompress_fail_count: int = 0
+var _voice_setup_attempts: int = 0
+var _steam_voice_warned: bool = false
+const MAX_VOICE_SETUP_ATTEMPTS: int = 60
 
 func _ready() -> void:
 	# 只允许 Autoload 单例实例运行语音主循环，避免场景内重复 VoiceCore 造成双录音/双播放
@@ -57,6 +60,17 @@ func _ready() -> void:
 	call_deferred("_setup_voice")
 
 func _setup_voice() -> void:
+	# 等 NetworkManager.steamInitEx 完成；勿用 isSteamRunning()（与 API 是否初始化不是同一回事）
+	if not NetworkManager.is_steam_ready():
+		_voice_setup_attempts += 1
+		if _voice_setup_attempts < MAX_VOICE_SETUP_ATTEMPTS:
+			call_deferred("_setup_voice")
+			return
+		if not _steam_voice_warned:
+			_steam_voice_warned = true
+			push_warning("语音组件：Steam 未就绪（请先启动 Steam 客户端；编辑器 F5 也需 Steam 在后台运行）")
+		return
+	_voice_setup_attempts = 0
 	_setup_sample_rate()
 	_setup_remote_audio_player()
 	_on_global_pain_for_voice(GameManager.pain_value)
@@ -134,9 +148,7 @@ func _smooth_remote_voice_db(delta: float) -> void:
 	_remote_player.volume_db = _remote_smoothed_db
 
 func _setup_sample_rate() -> void:
-	if not Steam.isSteamRunning():
-		push_warning("语音组件：Steam 未运行")
-		return
+	# 采样率不依赖 Steam API；固定 48000 与 AudioStreamGenerator 一致
 	_sample_rate = DEFAULT_SAMPLE_RATE
 
 func _setup_remote_audio_player() -> void:

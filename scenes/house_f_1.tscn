@@ -10,3 +10,21 @@ generate_mesh_trimesh_collision = true
 
 [node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
+
+[node name="OmniLight3D" type="OmniLight3D" parent="." index="287" unique_id=1891716632]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -506.41074, 66.69272, 446.94736)
+light_energy = 1.937
+
+[node name="OmniLight3D2" type="OmniLight3D" parent="." index="288" unique_id=120755610]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -328.41745, 60.473503, 436.20953)
+light_energy = 2.73
+omni_range = 26.065054
+
+[node name="OmniLight3D3" type="OmniLight3D" parent="." index="289" unique_id=1194316734]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -69, 60.529503, 386.91046)
+light_energy = 2.369
+omni_range = 13.244
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." index="290" unique_id=1692973178]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.4491, 608.0974, 56.345367)
+light_energy = 0.078
