@@ -10,6 +10,8 @@ extends CharacterBody3D
 
 @export var move_speed: float = 4.0
 @export var mouse_sensitivity: float = 0.003
+## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）
+@export var lock_camera_pitch: bool = true
 @export var visual_smooth: float = 18.0
 ## 联机：位移“够大才算动”的宽松阈值（米），与旋转阈值分离，避免小碎步抢带宽
 @export var sync_move_pos_epsilon_m: float = 0.05
@@ -34,13 +36,10 @@ const JUMP_VELOCITY: float = 4.5
 const INTERACT_RAY_MASK: int = 8
 const INTERACT_RANGE: float = 5.0
 const VISION_LERP_SPEED: float = 10.0
-## 心理值 100% 时半圆视野半径；0% 时缩至 VISION_RADIUS_MIN（不为 0，避免全黑）
+## 圆孔外：纯黑遮罩（由 blind_player.gdshader 的 alpha 混合实现，不再用亮度透出自发光）
 const VISION_RADIUS_MAX: float = 0.22
 const VISION_RADIUS_MIN: float = 0.05
 const VISION_RADIUS_LERP: float = 0.22
-## 圆孔外：药物/钥匙等自发光物件的「幽灵高亮」阈值（越低越容易透出）
-const GHOST_LUM_THRESHOLD: float = 0.10
-const GHOST_LUM_SOFTNESS: float = 0.20
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var is_local: bool = false
@@ -75,6 +74,8 @@ var _last_client_rot_send_ms: int = -1_000_000
 var _client_move_bootstrapped: bool = false
 var _last_synced_mh: float = -1.0
 const MH_NET_SYNC_EPSILON: float = 0.5
+## 场景里 Camera3D 初始俯仰角，运行时保持不变
+var _locked_camera_pitch: float = 0.0
 
 @onready var camera: Camera3D = $Camera3D
 @onready var ui_root: CanvasLayer = $UI
@@ -97,10 +98,12 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(50.0)
 	max_slides = 6
 	_configure_vision_mask()
+	_capture_locked_camera_pitch()
+	_lock_blind_camera_pitch()
 	_net_rot_y = rotation.y
-	_net_cam_x = camera.rotation.x
+	_net_cam_x = _locked_camera_pitch
 	_prev_phys_rot_y = rotation.y
-	_prev_phys_cam_x = camera.rotation.x
+	_prev_phys_cam_x = _locked_camera_pitch
 	_prev_phys_initialized = true
 	if not is_local:
 		camera.current = false
@@ -124,7 +127,7 @@ func _ready() -> void:
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
-		# 场景灯全关后，仅 SpotLight 照亮圆孔内；圆孔外靠 shader ghost_lum 显示高亮交互物
+		# 场景灯全关后，仅 SpotLight + 下方半圆孔内可见；孔外由 VisionMask shader 叠纯黑
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
 	_display_mh = GameManager.mental_health
@@ -136,6 +139,7 @@ func _ready() -> void:
 
 func _on_spawning_finished() -> void:
 	velocity = Vector3.ZERO
+	_lock_blind_camera_pitch()
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
 
@@ -144,18 +148,14 @@ func _configure_vision_mask() -> void:
 	if vision_mask == null:
 		return
 	vision_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vision_mask.color = Color(1, 1, 1, 1)
+	vision_mask.color = Color(0, 0, 0, 1)
 	if vision_mask.material is ShaderMaterial:
 		var mat := (vision_mask.material as ShaderMaterial).duplicate()
 		vision_mask.material = mat
 		_vision_mask_mat = mat
-		# 半圆孔：平直边贴近屏幕底部，弧向上（半径由心理值动态驱动）
 		mat.set_shader_parameter("vision_radius", VISION_RADIUS_MAX)
 		mat.set_shader_parameter("feather", 0.06)
 		mat.set_shader_parameter("vision_bottom_y", 0.94)
-		# 圆孔外压黑区域：靠亮度阈值保留药物/钥匙等高自发光物件（见 medicine_item.gd emission）
-		mat.set_shader_parameter("ghost_lum_threshold", GHOST_LUM_THRESHOLD)
-		mat.set_shader_parameter("ghost_lum_softness", GHOST_LUM_SOFTNESS)
 
 
 func _exit_tree() -> void:
@@ -205,10 +205,36 @@ func _can_control_local_camera() -> bool:
 
 
 func _apply_look(relative: Vector2) -> void:
-	_mouse_look_this_frame = true
-	rotate_y(-relative.x * mouse_sensitivity)
-	camera.rotate_x(-relative.y * mouse_sensitivity)
-	camera.rotation.x = clampf(camera.rotation.x, -1.5, 1.5)
+	# 仅水平转向驱动移动方向；俯仰由 _lock_blind_camera_pitch 固定
+	if relative.x != 0.0:
+		_mouse_look_this_frame = true
+		rotate_y(-relative.x * mouse_sensitivity)
+	_lock_blind_camera_pitch()
+
+
+## 记录场景初始俯仰，作为瞎子唯一允许的 camera.rotation.x
+func _capture_locked_camera_pitch() -> void:
+	if camera == null:
+		return
+	# 场景里俯仰可能写在 transform 而非 rotation 字段，统一从 basis 读取
+	_locked_camera_pitch = camera.transform.basis.get_euler(EULER_ORDER_YXZ).x
+
+
+## 强制相机俯仰固定，清除任何抬头/低头输入或网络同步带来的偏移
+func _lock_blind_camera_pitch() -> void:
+	if not lock_camera_pitch or camera == null:
+		return
+	camera.rotation.x = _locked_camera_pitch
+	camera.rotation.y = 0.0
+	camera.rotation.z = 0.0
+
+
+func _get_blind_flat_forward() -> Vector3:
+	var forward := -global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 1e-8:
+		return Vector3.ZERO
+	return forward.normalized()
 
 
 func _process(delta: float) -> void:
@@ -216,6 +242,8 @@ func _process(delta: float) -> void:
 		var target_mh := GameManager.target_mental_health if NetworkManager.is_multiplayer_game and not multiplayer.is_server() else GameManager.mental_health
 		_display_mh = lerpf(_display_mh, target_mh, clampf(VISION_LERP_SPEED * delta, 0.0, 1.0))
 		_apply_vision_radius_from_display()
+	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
+		_lock_blind_camera_pitch()
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
 	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
@@ -226,6 +254,7 @@ func _process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, _net_rot_y, k_rot)
 		if camera:
 			camera.rotation.x = lerpf(camera.rotation.x, _net_cam_x, k_rot)
+			_lock_blind_camera_pitch()
 
 
 func _physics_process(delta: float) -> void:
@@ -251,7 +280,7 @@ func _physics_process(delta: float) -> void:
 	if GameManager.current_role != GameManager.ROLE_BLIND:
 		return
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
-	var cam_x := camera.rotation.x
+	var cam_x := _locked_camera_pitch
 	var now_ms := Time.get_ticks_msec()
 	var rot_eps_rad := deg_to_rad(sync_rot_send_epsilon_deg)
 	## 与「发送阈值 0.1°」分离：仅检测物理帧之间是否在转头（略大于浮点噪声即可）
@@ -260,7 +289,7 @@ func _physics_process(delta: float) -> void:
 	var moving := input_dir.length_squared() > 1e-6
 	var turning_step := false
 	if _prev_phys_initialized:
-		turning_step = absf(angle_difference(_prev_phys_rot_y, rotation.y)) >= turn_step_rad or absf(_prev_phys_cam_x - cam_x) >= turn_step_rad
+		turning_step = absf(angle_difference(_prev_phys_rot_y, rotation.y)) >= turn_step_rad
 	_prev_phys_rot_y = rotation.y
 	_prev_phys_cam_x = cam_x
 	_prev_phys_initialized = true
@@ -271,8 +300,7 @@ func _physics_process(delta: float) -> void:
 
 	var input_changed := input_dir.distance_to(_last_sent_input) >= sync_input_vector_epsilon
 	var rot_changed := absf(angle_difference(_last_sent_rot_y, rotation.y)) >= rot_eps_rad
-	var cam_changed := absf(_last_sent_cam_x - cam_x) >= rot_eps_rad
-	var rot_due := (rot_changed or cam_changed) and (now_ms - _last_client_rot_send_ms >= sync_client_rotation_send_min_ms)
+	var rot_due := rot_changed and (now_ms - _last_client_rot_send_ms >= sync_client_rotation_send_min_ms)
 
 	var move_due := input_changed or move_hb
 	if not (_client_move_bootstrapped or move_due or rot_due):
@@ -327,11 +355,13 @@ func _simulate_blind_movement_server(delta: float) -> void:
 	var input_dir: Vector2
 	if GameManager.current_role == GameManager.ROLE_BLIND:
 		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+		_lock_blind_camera_pitch()
 	else:
 		input_dir = _remote_move_input
 		rotation.y = _remote_rot_y
 		if camera:
-			camera.rotation.x = _remote_cam_x
+			camera.rotation.x = _locked_camera_pitch
+	_lock_blind_camera_pitch()
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 	var dir := _camera_flat_move_dir(input_dir)
@@ -354,7 +384,7 @@ func _simulate_blind_movement_server(delta: float) -> void:
 	var pos_delta := 0.0 if not _has_ever_bcast else global_position.distance_to(_last_bcast_pos)
 	var pos_push := not _has_ever_bcast or pos_delta >= sync_move_pos_epsilon_m
 	var rot_push := not _has_ever_bcast or absf(angle_difference(_last_bcast_rot_y, rotation.y)) >= rot_eps_rad
-	var cam_push := not _has_ever_bcast or absf(_last_bcast_cam_x - camera.rotation.x) >= rot_eps_rad
+	var cam_push := not _has_ever_bcast or absf(_last_bcast_cam_x - _locked_camera_pitch) >= rot_eps_rad
 
 	var due_pos := pos_push and (not _has_ever_bcast or now_ms - _last_pos_broadcast_ms >= sync_host_position_broadcast_ms)
 	var due_rot := (rot_push or cam_push) and (not _has_ever_bcast or now_ms - _last_rot_broadcast_ms >= sync_host_rotation_broadcast_min_ms)
@@ -369,13 +399,13 @@ func _simulate_blind_movement_server(delta: float) -> void:
 		_last_rot_broadcast_ms = now_ms
 	_last_bcast_pos = global_position
 	_last_bcast_rot_y = rotation.y
-	_last_bcast_cam_x = camera.rotation.x
+	_last_bcast_cam_x = _locked_camera_pitch
 	var mh := GameManager.mental_health
 	var mh_push := _last_synced_mh < 0.0 or absf(mh - _last_synced_mh) >= MH_NET_SYNC_EPSILON
 	if mh_push:
 		_last_synced_mh = mh
 	_has_ever_bcast = true
-	c_sync_transform.rpc(global_position, rotation.y, camera.rotation.x, mh, pos_authoritative, mh_push)
+	c_sync_transform.rpc(global_position, rotation.y, _locked_camera_pitch, mh, pos_authoritative, mh_push)
 
 
 @rpc("any_peer", "unreliable_ordered")
@@ -391,7 +421,7 @@ func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float, want_jump: b
 		return
 	_remote_move_input = input_dir
 	_remote_rot_y = rot_y
-	_remote_cam_x = cam_x
+	_remote_cam_x = _locked_camera_pitch
 	if want_jump:
 		_remote_want_jump = true
 
@@ -401,24 +431,16 @@ func c_sync_transform(_target_pos: Vector3, target_rot_y: float, target_cam_x: f
 	if not NetworkManager.is_multiplayer_game:
 		return
 	_net_rot_y = target_rot_y
-	_net_cam_x = target_cam_x
+	_net_cam_x = _locked_camera_pitch
 	if apply_mh:
 		GameManager.sync_mental_target_from_network(mh)
 
 
 func _camera_flat_move_dir(input_dir: Vector2) -> Vector3:
-	if camera == null:
+	var forward := _get_blind_flat_forward()
+	if forward == Vector3.ZERO:
 		return Vector3.ZERO
-	var basis := camera.global_transform.basis
-	var forward := -basis.z
-	forward.y = 0.0
-	var right := basis.x
-	right.y = 0.0
-	if forward.length_squared() < 1e-8 or right.length_squared() < 1e-8:
-		return Vector3.ZERO
-	forward = forward.normalized()
-	right = right.normalized()
-	# get_vector：W(forward) → y 为负，需取反才沿相机朝向前进
+	var right := forward.cross(Vector3.UP).normalized()
 	return (forward * -input_dir.y + right * input_dir.x).normalized()
 
 
@@ -482,8 +504,11 @@ func _apply_vision_radius_from_display() -> void:
 
 func _try_interact() -> void:
 	var space := get_world_3d().direct_space_state
-	var from := camera.global_position
-	var to := from - camera.global_transform.basis.z * INTERACT_RANGE
+	var from := camera.global_position if camera else global_position + Vector3(0, 1.6, 0)
+	var flat_fwd := _get_blind_flat_forward()
+	if flat_fwd == Vector3.ZERO:
+		return
+	var to := from + flat_fwd * INTERACT_RANGE
 	var params := PhysicsRayQueryParameters3D.create(from, to, INTERACT_RAY_MASK)
 	var hit := space.intersect_ray(params)
 	if hit.is_empty():
