@@ -1,5 +1,13 @@
 extends CharacterBody3D
 
+## 瞎子玩家：核心移动体，唯一负责与关卡墙体碰撞的角色。
+##
+## 碰撞安全规范（与 lame_player.gd 配合）：
+## - collision_layer = 2 (player)，collision_mask = 1 (environment)，见 project.godot → 3D Physics Layer。
+## - 跑图必须用 velocity + move_and_slide()，禁止用 global_position 做日常位移（切关传送除外）。
+## - floor_stop_on_slope / floor_max_angle / max_slides：贴地停坡与滑墙，避免卡角。
+## - 瘸子为零碰撞影子，跟随 CarryAnchor；挡墙只由本节点胶囊体承担。
+
 @export var move_speed: float = 4.0
 @export var mouse_sensitivity: float = 0.003
 @export var visual_smooth: float = 18.0
@@ -83,6 +91,11 @@ var _vision_mask_mat: ShaderMaterial = null
 
 func _ready() -> void:
 	add_to_group("player")
+	# 物理层：仅与 environment(layer 1) 碰撞；关卡 StaticBody3D 须设为 layer 1（同 room_builder）
+	collision_mask = 1
+	floor_stop_on_slope = true
+	floor_max_angle = deg_to_rad(50.0)
+	max_slides = 6
 	_configure_vision_mask()
 	_net_rot_y = rotation.y
 	_net_cam_x = camera.rotation.x
@@ -294,6 +307,7 @@ func _apply_authority_jump() -> void:
 		velocity.y = JUMP_VELOCITY
 
 
+## 单机/local 瞎子移动：只改 velocity，最后 move_and_slide() 由引擎处理挡墙与滑墙。
 func _simulate_blind_movement(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
@@ -308,6 +322,7 @@ func _simulate_blind_movement(delta: float) -> void:
 	move_and_slide()
 
 
+## 联机权威端（Host）瞎子移动：同上，禁止在此直接写 global_position 做位移。
 func _simulate_blind_movement_server(delta: float) -> void:
 	var input_dir: Vector2
 	if GameManager.current_role == GameManager.ROLE_BLIND:

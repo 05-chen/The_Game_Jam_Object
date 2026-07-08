@@ -29,6 +29,7 @@ properties/1/replication_mode = 2
 
 [node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
 collision_layer = 2
+collision_mask = 1
 script = ExtResource("1")
 
 [node name="CarryAnchor" type="Marker3D" parent="." unique_id=173011403]

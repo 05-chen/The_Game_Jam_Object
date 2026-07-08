@@ -11,6 +11,11 @@ class_name LevelBase
 ##
 ## 本脚本在 _ready 时可选执行「导入后整理」：按节点命名前缀加入 `lvl_spawn` / `lvl_patrol` 组；可选批量设置 StaticBody3D 的碰撞层/掩码。
 ## 与 [PointTag] 配合：在 Blender 里为标记空物体命名后导出，或在 Godot 里给 Marker3D 挂 PointTag 脚本。
+##
+## 碰撞与玩家配合（见 blind_player.gd / project.godot）：
+## - 关卡 StaticBody3D 应使用 layer 1 (environment)，与 room_builder 一致；瞎子 collision_mask = 1 才能挡墙。
+## - house_f_1 等大场景可设 auto_static_body_collision_layer = 1；无 StaticBody3D 时可开 generate_mesh_trimesh_collision。
+## - 关卡根为 Node3D/StaticBody3D，不受重力影响；会掉落的是玩家 CharacterBody3D，须有地面碰撞。
 
 const GROUP_SPAWN := "lvl_spawn"
 const GROUP_PATROL := "lvl_patrol"
@@ -19,13 +24,13 @@ const GROUP_PATROL := "lvl_patrol"
 @export var apply_spawn_patrol_by_name: bool = true
 @export var spawn_name_prefixes: PackedStringArray = ["Spawn", "spawn", "SPAWN", "PlayerSpawn"]
 @export var patrol_name_prefixes: PackedStringArray = ["Patrol", "patrol", "WP_", "wp_"]
-## 非 0 时：为子树中所有 StaticBody3D 写入 collision_layer（覆盖原值，请与项目 physics 层设计一致）
+## 非 0 时：为子树中所有 StaticBody3D 写入 collision_layer（覆盖原值）。大场景建议设为 1，与 BlindPlayer 的 collision_mask 对应。
 @export var auto_static_body_collision_layer: int = 0
 ## 非 0 时：为子树中所有 StaticBody3D 写入 collision_mask
 @export var auto_static_body_collision_mask: int = 0
 ## 非空时：为所有 StaticBody3D 额外 add_to_group（便于玩法脚本用 get_nodes_in_group 收集）
 @export var static_body_extra_group: String = ""
-## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成三角网格碰撞（StaticBody3D，与 room_builder 同为静态环境）
+## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成三角网格碰撞（StaticBody3D，静态、不受重力，同 room_builder）。
 @export var generate_mesh_trimesh_collision: bool = false
 
 

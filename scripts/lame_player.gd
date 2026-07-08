@@ -3,6 +3,12 @@
 # [已修改] 远程玩家禁用相机和UI
 # [已修改] 疼痛值按阈值/Tier/心跳做不可靠同步；视角仅本地
 # [修复] 瘸子世界坐标始终跟随瞎子，不独立移动
+#
+# ── 碰撞与跟随（「瞎子背瘸子」）──
+# - 瘸子为「无碰撞影子」：collision_layer/mask = 0，Col 禁用，不调用 move_and_slide。
+# - 挡墙、滑墙、贴地全部由 BlindPlayer 的胶囊体 + move_and_slide() 负责。
+# - 瘸子每帧平滑跟随 BlindPlayer/CarryAnchor（主机与客机同一套插值，避免一端瞬移一端 lerp 手感不一致）。
+# - 项目物理层约定：layer 1 = environment（关卡 StaticBody3D），layer 2 = player（瞎子）。
 # TODO (Network Optimization): 待优化 - 增加远端状态快照队列与插值/缓冲，进一步平滑高延迟下的旋转与表现层同步。
 # TODO (Network Optimization): 待优化 - 统一交互链路为“客户端请求 -> Authority 校验 -> 全局广播结果”，避免未来交互对象出现本地先行生效。
 
@@ -11,7 +17,6 @@ extends CharacterBody3D
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
 ## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
-const JUMP_VELOCITY: float = 4.5
 const INTERACT_RAY_MASK: int = 8
 const INTERACT_RANGE: float = 5.0
 const PAIN_LERP_SPEED: float = 10.0
@@ -28,7 +33,10 @@ const PAIN_NET_HEARTBEAT_MS: int = 1100
 
 # [新增] 背负锚点引用 - 用于强制跟随 BlindPlayer/CarryAnchor
 var _carry_anchor_ref: Node3D = null
-@export var carry_follow_lerp_speed: float = 12.0
+## 平滑跟随速度（指数插值系数，帧率无关）。越大贴得越紧；仍觉滞后可试 22~25。
+@export var carry_follow_lerp_speed: float = 18.0
+## 与 CarryAnchor 距离超过此值时瞬移贴合（切关/传送）；平时走平滑插值，避免主机/客机卡顿感。
+@export var carry_snap_distance: float = 3.0
 
 # 场景节点引用
 @onready var camera: Camera3D = $Camera3D
@@ -44,7 +52,7 @@ func _ready() -> void:
 	add_to_group("player")
 	if pain_overlay:
 		pain_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# 无论本地/远程，都禁用瘸子的碰撞，避免干扰瞎子移动
+	# 无碰撞影子：不参与挡墙/挤压，物理阻挡完全交给 BlindPlayer（见 blind_player.gd）
 	collision_layer = 0
 	collision_mask = 0
 	if has_node("Col"):
@@ -130,29 +138,31 @@ func _physics_process(delta: float) -> void:
 	if is_spawning:
 		velocity = Vector3.ZERO
 		return
-	# [增量] 权威端跳跃占位：瘸子实际位移由 CarryAnchor 跟随瞎子，起跳轨迹由瞎子同步带动
-	if is_multiplayer_authority() and is_on_floor() and Input.is_action_just_pressed("ui_accept"):
-		velocity.y = JUMP_VELOCITY
-	# 1. 每帧强制跟随 BlindPlayer/CarryAnchor（本地与远程都执行）
-	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
-		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
-	if _carry_anchor_ref and is_instance_valid(_carry_anchor_ref):
-		var target_pos := _carry_anchor_ref.global_position
-		if NetworkManager.is_multiplayer_game and multiplayer.is_server():
-			global_position = target_pos
-		else:
-			var weight := clampf(delta * carry_follow_lerp_speed, 0.0, 1.0)
-			global_position = global_position.lerp(target_pos, weight)
-
+	_sync_to_carry_anchor(delta)
 	if not is_local:
 		return
 	if not GameManager.is_game_active or GameManager.is_game_over:
 		return
-
 	GameManager.update_pain(delta)
-
 	if NetworkManager.is_multiplayer_game:
 		_maybe_network_sync_pain()
+
+
+## 平滑跟随 CarryAnchor：主机/客机统一指数插值；无碰撞，不参与挡墙。
+## 公式 weight = 1 - exp(-carry_follow_lerp_speed * delta)，比线性 lerp 更顺且不依赖帧率。
+func _sync_to_carry_anchor(delta: float) -> void:
+	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
+		_carry_anchor_ref = get_node_or_null("../BlindPlayer/CarryAnchor")
+	if _carry_anchor_ref == null or not is_instance_valid(_carry_anchor_ref):
+		return
+	var target_pos := _carry_anchor_ref.global_position
+	# 切关/传送等超大位移：直接贴合，避免从远处慢慢飘过来
+	if global_position.distance_to(target_pos) >= carry_snap_distance:
+		global_position = target_pos
+	else:
+		var weight := 1.0 - exp(-carry_follow_lerp_speed * delta)
+		global_position = global_position.lerp(target_pos, clampf(weight, 0.0, 1.0))
+	velocity = Vector3.ZERO
 
 
 func _maybe_network_sync_pain() -> void:
