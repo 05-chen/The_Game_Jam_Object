@@ -403,7 +403,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _request_toggle_invincible() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_toggle_invincible_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_apply_invincible.rpc(not GameManager.dev_invincible)
+		else:
+			_request_toggle_invincible_rpc.rpc_id(1)
 	else:
 		_apply_invincible.rpc(not GameManager.dev_invincible)
 
@@ -423,7 +426,10 @@ func _apply_invincible(enabled: bool) -> void:
 
 func _request_clear_ghosts() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_clear_ghosts_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_apply_clear_ghosts.rpc()
+		else:
+			_request_clear_ghosts_rpc.rpc_id(1)
 	else:
 		_apply_clear_ghosts.rpc()
 
@@ -446,7 +452,10 @@ func _apply_clear_ghosts() -> void:
 
 func _request_reset_status() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_reset_status_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_apply_reset_status.rpc()
+		else:
+			_request_reset_status_rpc.rpc_id(1)
 	else:
 		_apply_reset_status.rpc()
 
@@ -473,7 +482,10 @@ func _apply_reset_status() -> void:
 
 func _request_toggle_pause() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_toggle_pause_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_apply_pause_state.rpc(not GameManager.dev_paused)
+		else:
+			_request_toggle_pause_rpc.rpc_id(1)
 	else:
 		_apply_pause_state.rpc(not GameManager.dev_paused)
 
@@ -568,7 +580,10 @@ func _save_checkpoint_now() -> void:
 
 func notify_checkpoint_reached(_checkpoint_node: Node) -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_save_checkpoint_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_save_checkpoint_now()
+		else:
+			_request_save_checkpoint_rpc.rpc_id(1)
 	else:
 		_save_checkpoint_now()
 
@@ -645,7 +660,10 @@ func _update_pause_ui() -> void:
 
 func _request_return_lobby() -> void:
 	if NetworkManager.is_multiplayer_game:
-		_request_return_lobby_rpc.rpc_id(1)
+		if multiplayer.is_server():
+			_apply_return_lobby.rpc()
+		else:
+			_request_return_lobby_rpc.rpc_id(1)
 	else:
 		_apply_return_lobby.rpc()
 
@@ -672,7 +690,8 @@ func _ensure_checkpoint_trigger() -> void:
 		return
 	var area := Area3D.new()
 	area.name = "Checkpoint"
-	area.position = Vector3(0, 1.0, 0)
+	# 勿与瞎子出生点 (0,1,0) 重叠，否则一进场景就触发存档
+	area.position = Vector3(4, 1.0, 0)
 	area.collision_mask = 2
 	area.script = load("res://scripts/checkpoint_trigger.gd")
 	var shape := CollisionShape3D.new()

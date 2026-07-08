@@ -98,10 +98,11 @@ func send_voice_packet(packet: PackedByteArray) -> void:
 	if not is_voice_link_ready() or packet.is_empty():
 		return
 	_ensure_voice_p2p_session()
+	# 语音用 UNRELIABLE（非 NO_DELAY），减少公网丢包导致的「长时间无声 + 短促爆音」
 	Steam.sendP2PPacket(
 		remote_steam_id,
 		packet,
-		Steam.P2P_SEND_UNRELIABLE_NO_DELAY,
+		Steam.P2P_SEND_UNRELIABLE,
 		VOICE_P2P_CHANNEL
 	)
 

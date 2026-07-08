@@ -19,6 +19,7 @@ var initial_y: float = 0.0
 var is_collected: bool = false
 var _pickup_animating: bool = false
 var _gameplay_committed: bool = false
+var _idle_phase: float = 0.0
 
 @onready var mesh: MeshInstance3D = $Mesh
 @onready var col: CollisionShape3D = $Col
@@ -61,33 +62,15 @@ func _setup_look() -> void:
 		lbl.text = "钥匙碎片"
 	mesh.material_override = mat
 	mesh.layers = ITEM_RENDER_LAYER
-	_setup_idle_animation_player()
+	_idle_phase = rotation.y
 
 
-func _setup_idle_animation_player() -> void:
-	var ap := AnimationPlayer.new()
-	ap.name = "IdleAnim"
-	add_child(ap)
-	ap.root_node = NodePath("..")
-	var anim := Animation.new()
-	anim.length = 4.0
-	anim.loop_mode = Animation.LOOP_LINEAR
-	var tr_y := anim.add_track(Animation.TYPE_VALUE)
-	anim.track_set_path(tr_y, NodePath("position:y"))
-	anim.value_track_set_update_mode(tr_y, Animation.UPDATE_CONTINUOUS)
-	anim.track_insert_key(tr_y, 0.0, initial_y)
-	anim.track_insert_key(tr_y, 2.0, initial_y + float_height)
-	anim.track_insert_key(tr_y, 4.0, initial_y)
-	var tr_ry := anim.add_track(Animation.TYPE_VALUE)
-	anim.track_set_path(tr_ry, NodePath("rotation:y"))
-	anim.value_track_set_update_mode(tr_ry, Animation.UPDATE_CONTINUOUS)
-	var ry0 := rotation.y
-	anim.track_insert_key(tr_ry, 0.0, ry0)
-	anim.track_insert_key(tr_ry, 4.0, ry0 + TAU)
-	var lib := AnimationLibrary.new()
-	lib.add_animation("idle", anim)
-	ap.add_animation_library("", lib)
-	ap.play("idle")
+func _process(delta: float) -> void:
+	if is_collected or _pickup_animating:
+		return
+	_idle_phase += delta * (TAU / 4.0)
+	position.y = initial_y + sin(_idle_phase * float_speed) * float_height
+	rotation.y = _idle_phase
 
 
 func _can_role_collect(role: int) -> bool:
@@ -131,9 +114,6 @@ func _authority_apply_pickup_fx(collector_pos: Vector3) -> void:
 	is_collected = true
 	collision_layer = 0
 	col.set_deferred("disabled", true)
-	var ap := get_node_or_null("IdleAnim") as AnimationPlayer
-	if ap:
-		ap.stop()
 	if lbl:
 		lbl.visible = false
 	var tw := create_tween()
