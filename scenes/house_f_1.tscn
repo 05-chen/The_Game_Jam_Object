@@ -14,8 +14,20 @@ script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 generate_mesh_trimesh_collision = true
 
+[node name="Cube_0025" parent="." index="139" unique_id=374725566]
+visible = false
+
+[node name="Cube1" parent="." index="198" unique_id=78845804]
+visible = false
+
+[node name="Cube3" parent="." index="199" unique_id=1788558931]
+visible = false
+
 [node name="Cube32" parent="." index="276" unique_id=1742268472]
 transform = Transform3D(2.9040992, 0, 0, 0, 2.9040992, 0, 0, 0, 2.9040992, -326.7647, -5.773487, -768.2284)
+
+[node name="Cube33" parent="." index="278" unique_id=567167864]
+visible = false
 
 [node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
@@ -48,3 +60,6 @@ shape = SubResource("BoxShape3D_sbl5i")
 [node name="CollisionShape3D2" type="CollisionShape3D" parent="AirWall" index="1" unique_id=852657186]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 451.9046, 25.694452, 2.9957228)
 shape = SubResource("BoxShape3D_d6g4c")
+
+[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="292" unique_id=142590855]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
