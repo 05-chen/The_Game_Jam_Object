@@ -3,10 +3,19 @@
 [ext_resource type="PackedScene" uid="uid://drmgafgorto0t" path="res://scenes/GameModeScene/houseF1.glb" id="1_bgg21"]
 [ext_resource type="Script" uid="uid://c8lvlbase02sy" path="res://scripts/LevelSystem/LevelBase.gd" id="2_level"]
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_sbl5i"]
+size = Vector3(33.772125, 84.13668, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_d6g4c"]
+size = Vector3(84.654175, 52.437836, 1)
+
 [node name="houseF1" unique_id=1977836609 instance=ExtResource("1_bgg21")]
 script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 generate_mesh_trimesh_collision = true
+
+[node name="Cube32" parent="." index="276" unique_id=1742268472]
+transform = Transform3D(2.9040992, 0, 0, 0, 2.9040992, 0, 0, 0, 2.9040992, -326.7647, -5.773487, -768.2284)
 
 [node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
@@ -28,3 +37,14 @@ omni_range = 13.244
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." index="290" unique_id=1692973178]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.4491, 608.0974, 56.345367)
 light_energy = 0.078
+
+[node name="AirWall" type="StaticBody3D" parent="." index="291" unique_id=1231932780]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -365.91443, -4.722002, 1.7379351)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="AirWall" index="0" unique_id=2075977032]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.9586792, 11.515156, 0)
+shape = SubResource("BoxShape3D_sbl5i")
+
+[node name="CollisionShape3D2" type="CollisionShape3D" parent="AirWall" index="1" unique_id=852657186]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 451.9046, 25.694452, 2.9957228)
+shape = SubResource("BoxShape3D_d6g4c")

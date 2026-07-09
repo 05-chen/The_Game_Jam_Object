@@ -38,8 +38,10 @@ var _dev_label: Label = null
 var _fade_rect: ColorRect = null
 const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
+const AIR_WALL_NODE_NAME := &"AirWall"
 var _spawn_release_token: int = 0
 var _players_spawned: bool = false
+var _air_wall_removed: bool = false
 
 # 初始化函数
 func _ready() -> void:
@@ -157,12 +159,14 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 		_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
 
 
-## 测试关集齐钥匙 → Host 发起切关
+## 测试关集齐钥匙 → Host 发起切关（GameManager.stage_cleared → 此处）
+## 判定逻辑仍在 game_manager.gd:solve_puzzle()，此处只负责 Host 侧流程编排
 func _on_tutorial_stage_cleared() -> void:
 	if _phase != GamePhase.TUTORIAL or _entering_main_level:
 		return
 	if not multiplayer.is_server():
 		return
+	# 保留原有切关 RPC；AirWall 在大场景加载完成后于 _enter_main_level 内同步拆除
 	_rpc_enter_main_level.rpc()
 
 
@@ -182,12 +186,39 @@ func _enter_main_level() -> void:
 	GameManager.puzzles_solved = 0
 	_load_main_level_scene()
 	await get_tree().process_frame
+	# 第一关结束时间点：大场景已实例化，立刻全网拆除 AirWall 解锁后续区域
+	_unlock_stage_by_removing_air_wall()
 	var spawn_pos := _resolve_spawn_position()
 	_reposition_players(spawn_pos)
 	_save_checkpoint_now()
 	await _fade_in(0.4)
 	_entering_main_level = false
 	_show_stage_msg("测试关完成，进入医院...")
+
+
+## Host 在阶段解锁时广播；call_local 保证两端同时 queue_free
+func _unlock_stage_by_removing_air_wall() -> void:
+	if _air_wall_removed:
+		return
+	if not multiplayer.is_server():
+		return
+	_rpc_remove_air_wall.rpc()
+
+
+@rpc("any_peer", "call_local")
+func _rpc_remove_air_wall() -> void:
+	_remove_air_wall_local()
+
+
+func _remove_air_wall_local() -> void:
+	if _air_wall_removed:
+		return
+	var wall := find_child(AIR_WALL_NODE_NAME, true, false)
+	if wall == null:
+		push_warning("[GameWorld] 未找到 %s，请在大场景中手动创建该 StaticBody3D" % AIR_WALL_NODE_NAME)
+		return
+	_air_wall_removed = true
+	wall.queue_free()
 
 
 func _clear_tutorial_content() -> void:
