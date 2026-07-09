@@ -263,15 +263,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if not GameManager.is_game_active or GameManager.is_game_over:
 		return
-	# [增量] 联机跳跃：仅在权威端改 velocity，由 MultiplayerSynchronizer 同步给远端
+	if not NetworkManager.is_multiplayer_game or multiplayer.multiplayer_peer == null:
+		return
 	if is_multiplayer_authority():
 		_apply_authority_jump()
-	if not NetworkManager.is_multiplayer_game:
-		if not is_local:
-			return
-		_simulate_blind_movement(delta)
-		GameManager.update_mental_health(delta)
-		return
 	if multiplayer.is_server():
 		_simulate_blind_movement_server(delta)
 		return
@@ -323,32 +318,28 @@ func _apply_authority_jump() -> void:
 	if not is_on_floor():
 		return
 	var want_jump := false
-	if NetworkManager.is_multiplayer_game:
-		if GameManager.current_role == GameManager.ROLE_BLIND:
-			want_jump = Input.is_action_just_pressed("ui_accept")
-		elif _remote_want_jump:
-			want_jump = true
-			_remote_want_jump = false
-	else:
+	if GameManager.current_role == GameManager.ROLE_BLIND:
 		want_jump = Input.is_action_just_pressed("ui_accept")
+	elif _remote_want_jump:
+		want_jump = true
+		_remote_want_jump = false
 	if want_jump:
 		velocity.y = JUMP_VELOCITY
 
 
-## 单机/local 瞎子移动：只改 velocity，最后 move_and_slide() 由引擎处理挡墙与滑墙。
-func _simulate_blind_movement(delta: float) -> void:
-	if not is_on_floor():
-		velocity.y -= gravity * delta
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
-	var dir := _camera_flat_move_dir(input_dir)
-	if dir != Vector3.ZERO:
-		velocity.x = dir.x * move_speed
-		velocity.z = dir.z * move_speed
-	else:
-		velocity.x = move_toward(velocity.x, 0.0, move_speed)
-		velocity.z = move_toward(velocity.z, 0.0, move_speed)
-	move_and_slide()
-
+## [已禁用单机] 原单机瞎子移动逻辑保留备查
+# func _simulate_blind_movement(delta: float) -> void:
+# 	if not is_on_floor():
+# 		velocity.y -= gravity * delta
+# 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
+# 	var dir := _camera_flat_move_dir(input_dir)
+# 	if dir != Vector3.ZERO:
+# 		velocity.x = dir.x * move_speed
+# 		velocity.z = dir.z * move_speed
+# 	else:
+# 		velocity.x = move_toward(velocity.x, 0.0, move_speed)
+# 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
+# 	move_and_slide()
 
 ## 联机权威端（Host）瞎子移动：同上，禁止在此直接写 global_position 做位移。
 func _simulate_blind_movement_server(delta: float) -> void:
@@ -409,7 +400,7 @@ func _simulate_blind_movement_server(delta: float) -> void:
 
 
 @rpc("any_peer", "unreliable_ordered")
-func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float, want_jump: bool = false) -> void:
+func s_request_move(input_dir: Vector2, rot_y: float, _cam_x: float, want_jump: bool = false) -> void:
 	if not NetworkManager.is_multiplayer_game or not multiplayer.is_server():
 		return
 	var sender_id := multiplayer.get_remote_sender_id()
@@ -427,7 +418,7 @@ func s_request_move(input_dir: Vector2, rot_y: float, cam_x: float, want_jump: b
 
 
 @rpc("authority", "unreliable_ordered", "call_remote")
-func c_sync_transform(_target_pos: Vector3, target_rot_y: float, target_cam_x: float, mh: float, _pos_authoritative: bool = true, apply_mh: bool = true) -> void:
+func c_sync_transform(_target_pos: Vector3, target_rot_y: float, _target_cam_x: float, mh: float, _pos_authoritative: bool = true, apply_mh: bool = true) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		return
 	_net_rot_y = target_rot_y

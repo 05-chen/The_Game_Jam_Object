@@ -76,8 +76,8 @@ func _ready() -> void:
 
 
 func _runs_authority_ai() -> bool:
-	if not NetworkManager.is_multiplayer_game:
-		return is_host_controlled
+	if not NetworkManager.is_multiplayer_game or multiplayer.multiplayer_peer == null:
+		return false
 	return is_multiplayer_authority() and is_host_controlled
 
 

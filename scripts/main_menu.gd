@@ -1,20 +1,19 @@
 # 主菜单脚本 - 处理主菜单的按钮点击事件和场景切换
+# [已关闭单机] 测试请从「联机大厅」进入
 
-# 基本设置
 extends Control
 
-# 初始化函数 - 场景加载时执行
 func _ready() -> void:
-	# 仅在没有活跃联机时清理；联机会话应在大厅内由玩家主动断开
 	if not NetworkManager.is_multiplayer_game:
 		NetworkManager.hard_cleanup("enter_main_menu")
 	_show_interrupt_popup_if_needed()
-	# 连接按钮信号
-	%BlindButton.pressed.connect(_on_blind)  # 瞎子角色按钮
-	%LameButton.pressed.connect(_on_lame)  # 瘸子角色按钮
-	%MultiButton.pressed.connect(_on_multi)  # 多人游戏按钮
-	%QuitButton.pressed.connect(_on_quit)  # 退出按钮
-	# 显示鼠标
+	# 单机入口已禁用
+	%BlindButton.visible = false
+	%BlindButton.disabled = true
+	%LameButton.visible = false
+	%LameButton.disabled = true
+	%MultiButton.pressed.connect(_on_multi)
+	%QuitButton.pressed.connect(_on_quit)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func _show_interrupt_popup_if_needed() -> void:
@@ -27,36 +26,20 @@ func _show_interrupt_popup_if_needed() -> void:
 	add_child(dlg)
 	dlg.popup_centered()
 
+# func _on_blind() -> void:
+# 	GameManager.current_role = GameManager.ROLE_BLIND
+# 	GameManager.reset_game()
+# 	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
 
-# 选择瞎子角色函数
-func _on_blind() -> void:
-	if NetworkManager.is_multiplayer_game:
-		NetworkManager.close_room()
-	# 设置当前角色为瞎子
-	GameManager.current_role = GameManager.ROLE_BLIND
-	# 重置游戏状态
-	GameManager.reset_game()
-	# 切换到游戏世界场景
-	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
+# func _on_lame() -> void:
+# 	GameManager.current_role = GameManager.ROLE_LAME
+# 	GameManager.reset_game()
+# 	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
 
-# 选择瘸子角色函数
-func _on_lame() -> void:
-	if NetworkManager.is_multiplayer_game:
-		NetworkManager.close_room()
-	# 设置当前角色为瘸子
-	GameManager.current_role = GameManager.ROLE_LAME
-	# 重置游戏状态
-	GameManager.reset_game()
-	# 切换到游戏世界场景
-	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
-
-# 多人游戏函数 → 联机大厅
 func _on_multi() -> void:
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
-# 退出游戏函数
 func _on_quit() -> void:
-	# 退出前确保联机与语音彻底释放
 	NetworkManager.close_room()
 	if VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
 		VoiceChatManager.shutdown_voice("quit_game")

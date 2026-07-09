@@ -48,7 +48,7 @@ horizontal_alignment = 1
 
 [node name="Desc" type="Label" parent="VBox"]
 layout_mode = 2
-text = "多人合作恐怖游戏"
+text = "请从联机大厅开始游戏（单机模式已关闭）"
 horizontal_alignment = 1
 
 [node name="Sp" type="Control" parent="VBox"]

@@ -99,15 +99,8 @@ func _on_global_pain_for_voice(pain: float) -> void:
 				is_disabled_by_pain = false
 				set_voice_transmit_enabled(true)
 	else:
-		if GameManager.current_role == GameManager.ROLE_LAME:
-			if tier == _voice_tier_lame_local:
-				return
-			_voice_tier_lame_local = tier
-			set_local_pain_voice_policy(pain)
-			set_voice_transmit_enabled(tier != 0)
-		elif GameManager.current_role == GameManager.ROLE_BLIND:
-			is_disabled_by_pain = false
-			set_voice_transmit_enabled(true)
+		# [已禁用单机] 非联机对局时不配置语音阶梯
+		pass
 
 func _process(_delta: float) -> void:
 	if not _runtime_enabled:
@@ -121,13 +114,6 @@ func _process(_delta: float) -> void:
 	if not NetworkManager.is_voice_link_ready():
 		if _is_recording:
 			_set_recording(false)
-		if not NetworkManager.is_multiplayer_game:
-			is_disabled_by_pain = false
-			_voice_transmit_enabled = true
-			_remote_target_db = 0.0
-			_remote_smoothed_db = 0.0
-			if _remote_player:
-				_remote_player.volume_db = 0.0
 		return
 
 	_smooth_remote_voice_db(_delta)

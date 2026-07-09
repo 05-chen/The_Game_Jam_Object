@@ -11,7 +11,6 @@ func interact(role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_fro
 	if is_interact_exhausted():
 		return
 	if not NetworkManager.is_multiplayer_game:
-		_authority_apply_pickup_fx(interact_from if has_interact_from else global_position)
 		return
 	if multiplayer.is_server():
 		if _authority_validate_host(multiplayer.get_unique_id(), role, interact_from, has_interact_from):

@@ -44,6 +44,10 @@ var _players_spawned: bool = false
 # 初始化函数
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if not NetworkManager.is_multiplayer_game:
+		push_warning("[GameWorld] 已禁用单机模式，请从联机大厅开始游戏")
+		call_deferred("_return_to_lobby")
+		return
 	_setup_demo_ui()
 	_build_room()
 	await get_tree().process_frame
@@ -59,6 +63,10 @@ func _ready() -> void:
 	GameManager.stage_cleared.connect(_on_tutorial_stage_cleared)
 	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
 	_schedule_spawn_release()
+
+
+func _return_to_lobby() -> void:
+	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 # 测试关 room_builder，或调试时跳过测试关直接进大场景
 func _build_room() -> void:
@@ -103,15 +111,12 @@ func _init_players_from_spawn_point() -> void:
 	if _players_spawned:
 		return
 	var spawn_pos := _resolve_spawn_position()
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_spawn_players_at(spawn_pos)
-			_rpc_spawn_players_at.rpc(spawn_pos)
-		else:
-			while not _players_spawned:
-				await get_tree().process_frame
-	else:
+	if multiplayer.is_server():
 		_spawn_players_at(spawn_pos)
+		_rpc_spawn_players_at.rpc(spawn_pos)
+	else:
+		while not _players_spawned:
+			await get_tree().process_frame
 
 
 @rpc("authority", "reliable", "call_remote")
@@ -124,20 +129,10 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 	if _players_spawned:
 		return
 	_players_spawned = true
-	var is_mp = NetworkManager.is_multiplayer_game
 	var peer_id := 0
 	if multiplayer.multiplayer_peer != null:
 		peer_id = multiplayer.get_unique_id()
-	print("[GameWorld] 出生点=", spawn_pos, " 模式=", "多人" if is_mp else "单人",
-		" role=", GameManager.current_role, " peer=", peer_id)
-
-	if not is_mp:
-		var player_scene := blind_player_scene if GameManager.current_role == GameManager.ROLE_BLIND else lame_player_scene
-		var player = player_scene.instantiate()
-		player.is_local = true
-		player.global_position = spawn_pos
-		add_child(player)
-		return
+	print("[GameWorld] 出生点=", spawn_pos, " role=", GameManager.current_role, " peer=", peer_id)
 
 	var blind = blind_player_scene.instantiate()
 	var lame = lame_player_scene.instantiate()
@@ -149,7 +144,7 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 	add_child(blind)
 	add_child(lame)
 	blind.global_position = spawn_pos
-	if _phase == GamePhase.TUTORIAL and is_mp:
+	if _phase == GamePhase.TUTORIAL:
 		lame.global_position = TUTORIAL_LAME_SPAWN
 	else:
 		lame.global_position = spawn_pos
@@ -162,16 +157,13 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 		_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
 
 
-## 测试关集齐钥匙 → Host 发起切关；单机无 multiplayer peer，直接本地切关
+## 测试关集齐钥匙 → Host 发起切关
 func _on_tutorial_stage_cleared() -> void:
 	if _phase != GamePhase.TUTORIAL or _entering_main_level:
 		return
-	if NetworkManager.is_multiplayer_game:
-		if not multiplayer.is_server():
-			return
-		_rpc_enter_main_level.rpc()
-	else:
-		_rpc_enter_main_level()
+	if not multiplayer.is_server():
+		return
+	_rpc_enter_main_level.rpc()
 
 
 @rpc("authority", "reliable", "call_local")
@@ -254,9 +246,6 @@ func _fade_in(duration: float) -> void:
 func _schedule_spawn_release() -> void:
 	_spawn_release_token += 1
 	var token := _spawn_release_token
-	if not NetworkManager.is_multiplayer_game:
-		_spawn_release_after_warmup(token)
-		return
 	if multiplayer.is_server():
 		_spawn_release_after_warmup(token)
 	else:
@@ -266,9 +255,6 @@ func _schedule_spawn_release() -> void:
 func _spawn_release_after_warmup(token: int) -> void:
 	await _wait_physics_frames(SPAWN_PHYSICS_WARMUP_FRAMES)
 	if token != _spawn_release_token or not is_inside_tree():
-		return
-	if not NetworkManager.is_multiplayer_game:
-		_release_players_from_spawn()
 		return
 	if not multiplayer.is_server():
 		return
@@ -367,27 +353,16 @@ func _spawn_ghost() -> void:
 	var g = scn.instantiate()
 	g.name = "Ghost"
 	g.position = Vector3(5, 1, -5)
-	# 多人模式下，Ghost AI 仅在 Host 端运行
-	if NetworkManager.is_multiplayer_game:
-		g.is_host_controlled = multiplayer.is_server()
-		g.set_multiplayer_authority(1)
+	# 多人：Ghost AI 仅在 Host 端运行
+	g.is_host_controlled = multiplayer.is_server()
+	g.set_multiplayer_authority(1)
 	add_child(g)
 	_ghost_spawn_positions[g.get_path()] = g.global_position
 
-# 胜利：单机回主菜单；联机回联机大厅（不断开房间）。失败：单机检查点复活；联机同样回大厅
+# 胜利/失败：联机回大厅
 func _on_game_over(won: bool) -> void:
-	if won:
-		await get_tree().create_timer(2.0).timeout
-		if NetworkManager.is_multiplayer_game:
-			get_tree().change_scene_to_file("res://scenes/lobby.tscn")
-		else:
-			get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
-		return
-	if NetworkManager.is_multiplayer_game:
-		await get_tree().create_timer(2.0).timeout
-		get_tree().change_scene_to_file("res://scenes/lobby.tscn")
-		return
-	_request_respawn_from_checkpoint()
+	await get_tree().create_timer(2.0).timeout
+	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
 # 输入处理函数 - 暂停 + 开发者快捷键
 func _unhandled_input(event: InputEvent) -> void:
@@ -402,13 +377,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_request_reset_status()
 
 func _request_toggle_invincible() -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_apply_invincible.rpc(not GameManager.dev_invincible)
-		else:
-			_request_toggle_invincible_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_apply_invincible.rpc(not GameManager.dev_invincible)
+	else:
+		_request_toggle_invincible_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_toggle_invincible_rpc() -> void:
@@ -425,13 +397,10 @@ func _apply_invincible(enabled: bool) -> void:
 	GameManager.set_dev_invincible(enabled)
 
 func _request_clear_ghosts() -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_apply_clear_ghosts.rpc()
-		else:
-			_request_clear_ghosts_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_apply_clear_ghosts.rpc()
+	else:
+		_request_clear_ghosts_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_clear_ghosts_rpc() -> void:
@@ -451,13 +420,10 @@ func _apply_clear_ghosts() -> void:
 			ghost.global_position = Vector3(0, -100, 0)
 
 func _request_reset_status() -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_apply_reset_status.rpc()
-		else:
-			_request_reset_status_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_apply_reset_status.rpc()
+	else:
+		_request_reset_status_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_reset_status_rpc() -> void:
@@ -481,13 +447,10 @@ func _apply_reset_status() -> void:
 	GameManager.pain_value_changed.emit(GameManager.pain_value)
 
 func _request_toggle_pause() -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_apply_pause_state.rpc(not GameManager.dev_paused)
-		else:
-			_request_toggle_pause_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_apply_pause_state.rpc(not GameManager.dev_paused)
+	else:
+		_request_toggle_pause_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_toggle_pause_rpc() -> void:
@@ -514,15 +477,11 @@ func _apply_pause_state(paused: bool) -> void:
 	_update_pause_ui()
 
 func _request_respawn_from_checkpoint() -> void:
-	if NetworkManager.is_multiplayer_game:
-		# Host 端不能对自己发 rpc_id(1)，直接走本地 Authority 流程
-		if multiplayer.is_server():
-			if GameManager.has_checkpoint():
-				_apply_respawn.rpc()
-		else:
-			_request_respawn_rpc.rpc_id(1)
+	if multiplayer.is_server():
+		if GameManager.has_checkpoint():
+			_apply_respawn.rpc()
 	else:
-		_apply_respawn.rpc()
+		_request_respawn_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_respawn_rpc() -> void:
@@ -579,13 +538,10 @@ func _save_checkpoint_now() -> void:
 	GameManager.save_checkpoint(blind.global_position, lame.global_position)
 
 func notify_checkpoint_reached(_checkpoint_node: Node) -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_save_checkpoint_now()
-		else:
-			_request_save_checkpoint_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_save_checkpoint_now()
+	else:
+		_request_save_checkpoint_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_save_checkpoint_rpc() -> void:
@@ -659,13 +615,10 @@ func _update_pause_ui() -> void:
 			InputMouseGuard.release_for_ui()
 
 func _request_return_lobby() -> void:
-	if NetworkManager.is_multiplayer_game:
-		if multiplayer.is_server():
-			_apply_return_lobby.rpc()
-		else:
-			_request_return_lobby_rpc.rpc_id(1)
-	else:
+	if multiplayer.is_server():
 		_apply_return_lobby.rpc()
+	else:
+		_request_return_lobby_rpc.rpc_id(1)
 
 @rpc("any_peer", "reliable")
 func _request_return_lobby_rpc() -> void:
