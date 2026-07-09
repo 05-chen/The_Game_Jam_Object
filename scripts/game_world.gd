@@ -4,10 +4,9 @@
 # [已修改] Ghost 区分 Host/Client 控制
 # [已修改] 从关卡 PlayerSpawnPoint 读取出生点，Host 权威 + RPC 同步
 # [已修改] 先 room_builder 测试关，集齐钥匙后切 house_f_1 大场景
+# [已修改] 局内关卡切换逻辑已收拢至 LevelSystem/GameLevelFlow.gd，由 LevelManager 调度
 
 extends Node3D
-
-enum GamePhase { TUTORIAL, MAIN }
 
 ## ── 编辑器绑定（选中 GameWorld 根节点后在 Inspector 里拖入）──
 @export_group("关卡")
@@ -20,15 +19,7 @@ enum GamePhase { TUTORIAL, MAIN }
 @export var blind_player_scene: PackedScene = preload("res://scenes/blind_player.tscn")
 @export var lame_player_scene: PackedScene = preload("res://scenes/lame_player.tscn")
 
-const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
-const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
-const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
-const DEFAULT_SPAWN := Vector3(0, 1, 0)
-
-var _phase: GamePhase = GamePhase.TUTORIAL
-var _room_node: Node3D = null
-var _level_node: Node3D = null
-var _entering_main_level: bool = false
+var _level_flow: GameLevelFlow
 
 var _item_idx: int = 0  # 物品命名计数器
 var _ghost_spawn_positions: Dictionary = {}
@@ -38,10 +29,8 @@ var _dev_label: Label = null
 var _fade_rect: ColorRect = null
 const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
-const AIR_WALL_NODE_NAME := &"AirWall"
 var _spawn_release_token: int = 0
 var _players_spawned: bool = false
-var _air_wall_removed: bool = false
 
 # 初始化函数
 func _ready() -> void:
@@ -51,10 +40,14 @@ func _ready() -> void:
 		call_deferred("_return_to_lobby")
 		return
 	_setup_demo_ui()
-	_build_room()
+	_level_flow = GameLevelFlow.new()
+	_level_flow.name = "LevelFlow"
+	add_child(_level_flow)
+	_level_flow.setup(self, level_scene, skip_tutorial)
+	_level_flow.build_initial_room()
 	await get_tree().process_frame
 	await _init_players_from_spawn_point()
-	if _phase == GamePhase.TUTORIAL:
+	if _level_flow.is_tutorial():
 		GameManager.advance_to_main_on_puzzle_clear = true
 		_spawn_items()
 		_ensure_checkpoint_trigger()
@@ -62,7 +55,6 @@ func _ready() -> void:
 		GameManager.advance_to_main_on_puzzle_clear = false
 	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
-	GameManager.stage_cleared.connect(_on_tutorial_stage_cleared)
 	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
 	_schedule_spawn_release()
 
@@ -70,42 +62,23 @@ func _ready() -> void:
 func _return_to_lobby() -> void:
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
-# 测试关 room_builder，或调试时跳过测试关直接进大场景
-func _build_room() -> void:
-	if skip_tutorial and level_scene:
-		_phase = GamePhase.MAIN
-		_load_main_level_scene()
-		return
-	_phase = GamePhase.TUTORIAL
-	var room := Node3D.new()
-	room.name = "TutorialRoom"
-	room.set_script(load("res://scripts/room_builder.gd"))
-	add_child(room)
-	_room_node = room
+
+## GameLevelFlow 调用的淡入淡出 / 存档钩子
+func level_flow_fade_out(duration: float) -> void:
+	await _fade_out(duration)
 
 
-func _load_main_level_scene() -> void:
-	if _level_node != null and is_instance_valid(_level_node):
-		return
-	if level_scene == null:
-		push_error("[GameWorld] level_scene 未绑定")
-		return
-	var level := level_scene.instantiate()
-	level.name = "Level"
-	add_child(level)
-	_level_node = level
+func level_flow_fade_in(duration: float) -> void:
+	await _fade_in(duration)
+
+
+func level_flow_save_checkpoint() -> void:
+	_save_checkpoint_now()
 
 
 ## 当前阶段应使用的出生坐标
 func _resolve_spawn_position() -> Vector3:
-	if _phase == GamePhase.TUTORIAL:
-		return TUTORIAL_BLIND_SPAWN
-	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else self
-	var marker := search_root.find_child(SPAWN_POINT_NAME, true, false) as Node3D
-	if marker:
-		return marker.global_position
-	push_warning("[GameWorld] 大场景未找到 %s，使用默认坐标" % SPAWN_POINT_NAME)
-	return DEFAULT_SPAWN
+	return _level_flow.resolve_spawn_position()
 
 
 ## 联机：Host 读出生点 → 本地生成 → RPC 通知 Client
@@ -146,10 +119,7 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 	add_child(blind)
 	add_child(lame)
 	blind.global_position = spawn_pos
-	if _phase == GamePhase.TUTORIAL:
-		lame.global_position = TUTORIAL_LAME_SPAWN
-	else:
-		lame.global_position = spawn_pos
+	lame.global_position = _level_flow.get_lame_spawn_for_phase(spawn_pos)
 
 	if not blind.is_local and not multiplayer.is_server():
 		_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
@@ -157,100 +127,6 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 		_add_player_marker(blind, Color(0.3, 0.5, 1.0, 0.7))
 	if not lame.is_local:
 		_setup_remote_proxy(lame, Color(0.2, 0.8, 0.3, 0.7))
-
-
-## 测试关集齐钥匙 → Host 发起切关（GameManager.stage_cleared → 此处）
-## 判定逻辑仍在 game_manager.gd:solve_puzzle()，此处只负责 Host 侧流程编排
-func _on_tutorial_stage_cleared() -> void:
-	if _phase != GamePhase.TUTORIAL or _entering_main_level:
-		return
-	if not multiplayer.is_server():
-		return
-	# 保留原有切关 RPC；AirWall 在大场景加载完成后于 _enter_main_level 内同步拆除
-	_rpc_enter_main_level.rpc()
-
-
-@rpc("authority", "reliable", "call_local")
-func _rpc_enter_main_level() -> void:
-	if _phase != GamePhase.TUTORIAL or _entering_main_level:
-		return
-	_entering_main_level = true
-	_enter_main_level()
-
-
-func _enter_main_level() -> void:
-	await _fade_out(0.4)
-	_clear_tutorial_content()
-	_phase = GamePhase.MAIN
-	GameManager.advance_to_main_on_puzzle_clear = false
-	GameManager.puzzles_solved = 0
-	_load_main_level_scene()
-	await get_tree().process_frame
-	# 第一关结束时间点：大场景已实例化，立刻全网拆除 AirWall 解锁后续区域
-	_unlock_stage_by_removing_air_wall()
-	var spawn_pos := _resolve_spawn_position()
-	_reposition_players(spawn_pos)
-	_save_checkpoint_now()
-	await _fade_in(0.4)
-	_entering_main_level = false
-	_show_stage_msg("测试关完成，进入医院...")
-
-
-## Host 在阶段解锁时广播；call_local 保证两端同时 queue_free
-func _unlock_stage_by_removing_air_wall() -> void:
-	if _air_wall_removed:
-		return
-	if not multiplayer.is_server():
-		return
-	_rpc_remove_air_wall.rpc()
-
-
-@rpc("any_peer", "call_local")
-func _rpc_remove_air_wall() -> void:
-	_remove_air_wall_local()
-
-
-func _remove_air_wall_local() -> void:
-	if _air_wall_removed:
-		return
-	var wall := find_child(AIR_WALL_NODE_NAME, true, false)
-	if wall == null:
-		push_warning("[GameWorld] 未找到 %s，请在大场景中手动创建该 StaticBody3D" % AIR_WALL_NODE_NAME)
-		return
-	_air_wall_removed = true
-	wall.queue_free()
-
-
-func _clear_tutorial_content() -> void:
-	if _room_node != null and is_instance_valid(_room_node):
-		_room_node.queue_free()
-		_room_node = null
-	var checkpoint := get_node_or_null("Checkpoint")
-	if checkpoint:
-		checkpoint.queue_free()
-	for child in get_children():
-		if String(child.name).begins_with("Item_"):
-			child.queue_free()
-
-
-func _reposition_players(spawn_pos: Vector3) -> void:
-	var blind := get_node_or_null("BlindPlayer") as Node3D
-	var lame := get_node_or_null("LamePlayer") as Node3D
-	if blind:
-		blind.global_position = spawn_pos
-		if blind is CharacterBody3D:
-			(blind as CharacterBody3D).velocity = Vector3.ZERO
-	if lame:
-		lame.global_position = spawn_pos
-		if lame is CharacterBody3D:
-			(lame as CharacterBody3D).velocity = Vector3.ZERO
-
-
-func _show_stage_msg(text: String) -> void:
-	for player_name in ["BlindPlayer", "LamePlayer"]:
-		var player := get_node_or_null(player_name)
-		if player != null and player.has_method("_show_msg"):
-			player.call("_show_msg", text)
 
 
 func _fade_out(duration: float) -> void:

@@ -122,6 +122,8 @@ func _init_navigation_ai() -> void:
 	pass
 
 
+## 关卡终点触发器连接此方法 → 整场景切换（level_array 下一项）。
+## 测试关→医院 不走这里，见 GameManager.stage_cleared → LevelManager.notify_tutorial_stage_cleared。
 func _on_goal_reached() -> void:
 	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
 		return

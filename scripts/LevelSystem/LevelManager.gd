@@ -1,12 +1,20 @@
 extends Node
 
-## Autoload：关卡切换与全屏淡入淡出。多人时仅主机调用 [method advance] 推进，并通过 RPC 同步 [method sync_transition]。
-## 与 [Tween](https://docs.godotengine.org/en/stable/classes/class_tween.html)、[SceneTree.change_scene_to_file](https://docs.godotengine.org/en/stable/classes/class_scenetree.html#class-scenetree-method-change-scene-to-file) 相关。
-## 在编辑器中为 `level_array` 填入 `res://...` 场景路径；导入的 Blender 关卡 .tscn 通常也作为其中一项。
+## Autoload：关卡切换总调度。
+##
+## 两种模式（勿混用同一阶段）：
+## 1. **局内流程** [GameLevelFlow]：GameWorld 不卸载，子场景测试关 → 实例化大场景（house_f_1）、拆 AirWall。
+##    触发：GameManager.stage_cleared（集齐钥匙）→ [method notify_tutorial_stage_cleared]。
+## 2. **整场景切换** [method advance]：`change_scene_to_file`，按 `level_array` 换 .tscn（如 LevelBase 终点）。
+##    触发：LevelBase._on_goal_reached() → [method advance]。
+##
+## 改「测试关进医院」→ scripts/LevelSystem/GameLevelFlow.gd
+## 改「整关换场景 / level_array」→ 本文件
 
 @export var level_array: Array[String] = []
 
 var _level_index: int = 0
+var _in_scene_flow: GameLevelFlow = null
 var _mask_layer: CanvasLayer
 var _mask_rect: ColorRect
 var _tween: Tween
@@ -15,6 +23,24 @@ var _tween: Tween
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_mask()
+	if not GameManager.stage_cleared.is_connected(_on_tutorial_stage_cleared):
+		GameManager.stage_cleared.connect(_on_tutorial_stage_cleared)
+
+
+func register_in_scene_flow(flow: GameLevelFlow) -> void:
+	_in_scene_flow = flow
+
+
+func _on_tutorial_stage_cleared() -> void:
+	notify_tutorial_stage_cleared()
+
+
+## 测试关集齐钥匙 → 局内切到大场景（Host 权威 + RPC 在 GameLevelFlow）
+func notify_tutorial_stage_cleared() -> void:
+	if _in_scene_flow == null:
+		push_warning("[LevelManager] 未注册 GameLevelFlow，无法进入大场景")
+		return
+	_in_scene_flow.request_enter_main_level()
 
 
 func _build_mask() -> void:
