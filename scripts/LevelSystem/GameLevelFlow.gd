@@ -1,7 +1,7 @@
 extends Node
 class_name GameLevelFlow
 
-## 局内关卡流程（不整场景切换）：测试关 room_builder → 实例化 house_f_1 → 拆 AirWall 等。
+## 局内关卡流程（不整场景切换）：测试关 room_builder → 实例化 house_f_1 → 拆 AirWall → RPC 同步生成 Stage2 鬼魂。
 ## 由 [LevelManager] 在 GameManager.stage_cleared 时触发；RPC 挂在本节点（GameWorld 子节点）上。
 
 enum Phase { TUTORIAL, MAIN }
@@ -11,6 +11,9 @@ const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
 const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
 const DEFAULT_SPAWN := Vector3(0, 1, 0)
 const AIR_WALL_NODE_NAME := &"AirWall"
+const GHOST_SPAWN_POINT_STAGE2 := &"GhostSpawnPoint_Stage2"
+const GHOST_STAGE2_NAME := &"GhostStage2"
+const GHOST_SCENE: PackedScene = preload("res://scenes/ghost.tscn")
 
 var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
@@ -21,6 +24,7 @@ var _room_node: Node3D = null
 var _level_node: Node3D = null
 var _entering_main_level: bool = false
 var _air_wall_removed: bool = false
+var _stage2_ghost_spawned: bool = false
 
 
 func setup(world: Node3D, main_level_scene: PackedScene, skip: bool) -> void:
@@ -115,12 +119,14 @@ func _load_main_level_scene() -> void:
 	_level_node = level
 
 
+## Host：拆 AirWall + 全网 RPC 生成 Stage2 鬼魂（不依赖 MultiplayerSpawner，避免 reparent 丢失）
 func _unlock_stage_by_removing_air_wall() -> void:
-	if _air_wall_removed:
-		return
 	if not multiplayer.is_server():
 		return
-	_rpc_remove_air_wall.rpc()
+	if not _air_wall_removed:
+		_rpc_remove_air_wall.rpc()
+	if not _stage2_ghost_spawned:
+		_rpc_spawn_stage2_ghost.rpc()
 
 
 @rpc("any_peer", "call_local")
@@ -137,6 +143,50 @@ func _remove_air_wall_local() -> void:
 		return
 	_air_wall_removed = true
 	wall.queue_free()
+
+
+## 全网手动生成：Host / Client 各自在本地 PathFollow3D 下实例化同名鬼魂
+@rpc("authority", "reliable", "call_local")
+func _rpc_spawn_stage2_ghost() -> void:
+	_spawn_stage2_ghost_local()
+
+
+func _spawn_stage2_ghost_local() -> void:
+	if _stage2_ghost_spawned:
+		return
+	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else _world
+	if search_root.find_child(GHOST_STAGE2_NAME, true, false) != null:
+		_stage2_ghost_spawned = true
+		return
+	var spawn_point := search_root.find_child(GHOST_SPAWN_POINT_STAGE2, true, false)
+	if spawn_point == null:
+		push_warning("[GameLevelFlow] 未找到 %s，无法生成第二关鬼魂" % GHOST_SPAWN_POINT_STAGE2)
+		return
+	var path_follow := spawn_point.find_child("PathFollow3D", true, false) as PathFollow3D
+	if path_follow == null:
+		push_warning("[GameLevelFlow] %s 下未找到 PathFollow3D" % GHOST_SPAWN_POINT_STAGE2)
+		return
+	var ghost: CharacterBody3D = GHOST_SCENE.instantiate() as CharacterBody3D
+	if ghost == null:
+		push_error("[GameLevelFlow] GHOST_SCENE 实例化失败")
+		return
+	ghost.name = GHOST_STAGE2_NAME
+	path_follow.add_child(ghost)
+	ghost.position = Vector3.ZERO
+	if ghost.has_method("bind_path_follow"):
+		ghost.bind_path_follow(path_follow)
+	if multiplayer.is_server():
+		ghost.is_host_controlled = true
+		ghost.set_multiplayer_authority(1)
+	_register_ghost_for_checkpoint(ghost)
+	_stage2_ghost_spawned = true
+	print("[GameLevelFlow] Stage2 鬼魂已生成 @ PathFollow3D (server=%s)" % str(multiplayer.is_server()))
+
+
+func _register_ghost_for_checkpoint(ghost: Node3D) -> void:
+	if not _world.has_method("register_ghost_spawn"):
+		return
+	_world.call("register_ghost_spawn", ghost)
 
 
 func _clear_tutorial_content() -> void:

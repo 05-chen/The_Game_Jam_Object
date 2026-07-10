@@ -76,6 +76,10 @@ func level_flow_save_checkpoint() -> void:
 	_save_checkpoint_now()
 
 
+func register_ghost_spawn(ghost: Node3D) -> void:
+	_ghost_spawn_positions[ghost.get_path()] = ghost.global_position
+
+
 ## 当前阶段应使用的出生坐标
 func _resolve_spawn_position() -> Vector3:
 	return _level_flow.resolve_spawn_position()
