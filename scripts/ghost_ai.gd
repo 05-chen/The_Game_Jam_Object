@@ -1,22 +1,40 @@
-# 幽灵 AI（Stage2 MVP）
-# - Host：驱动 PathFollow3D.progress_ratio 沿闭合轨道循环，并同步 ratio 给客机
-# - Client：仅接收 ratio，本地 PathFollow 驱动表现（无物理、无命中判定）
-# - 致命碰撞：仅 Host HitZone 检测瞎子（layer 2），带 _hit_latched 防重复
+# 幽灵 AI（Stage2）：PATROL → CHASE → RETURN 状态机
+# - Host：Path 巡逻 / NavigationAgent 追逐与回归 / HitZone 致命判定
+# - Client：PATROL 同步 progress_ratio；CHASE/RETURN 同步 global_position 并 Lerp
 extends CharacterBody3D
+
+enum State { PATROL, CHASE, RETURN }
 
 ## 编辑器可绑；若为空则在 _ready 自动取父节点 PathFollow3D
 @export var path_follow: PathFollow3D = null
-## 每秒沿轨道推进的 progress_ratio（0~1 为一圈）；大场景 Scale 0.08~0.1 时可微调
+## PATROL：每秒沿轨道推进的 progress_ratio（0~1 为一圈）
 @export var loop_progress_per_sec: float = 0.012
+## 进入 CHASE 的检测距离（需无墙遮挡）
+@export var detect_range: float = 12.0
+## 超出此距离（或失去视线）则放弃追击
+@export var lose_distance: float = 18.0
+## CHASE / RETURN 移动速度（与瞎子 move_speed≈4.0 同量级）
+@export var chase_speed: float = 4.5
+## RETURN 抵达脱离点后重新挂回轨道的距离阈值
+@export var return_arrive_distance: float = 0.5
 @export var attack_range: float = 1.0
+## 客机 CHASE/RETURN 位置插值速度
+@export var client_lerp_speed: float = 22.0
 
 const ATTACK_HIT_SCALE: float = 1.08
 
-## 兼容 game_world / LevelFlow：Host 生成时设为 true
+## 兼容 LevelFlow：Host 生成时设为 true
 var is_host_controlled: bool = true
+
+var state: State = State.PATROL
+var _last_patrol_ratio: float = 0.0
+var _detach_global_pos: Vector3 = Vector3.ZERO
 
 var _hit_zone: Area3D = null
 var _hit_latched: bool = false
+var _nav: NavigationAgent3D = null
+var _sync_target_pos: Vector3 = Vector3.ZERO
+var _path_anchor: Node3D = null
 
 @onready var ghost_mesh: MeshInstance3D = $GhostMesh
 
@@ -24,6 +42,7 @@ var _hit_latched: bool = false
 func _ready() -> void:
 	add_to_group("ghost_ai")
 	_resolve_path_follow()
+	_cache_path_anchor()
 	_apply_ghost_material()
 
 	if NetworkManager.is_multiplayer_game:
@@ -32,21 +51,26 @@ func _ready() -> void:
 	var net_client := NetworkManager.is_multiplayer_game and not is_multiplayer_authority()
 
 	if net_client:
-		# 客机：不做物理/AI，位置完全由 PathFollow + RPC ratio 驱动
 		set_physics_process(false)
+		set_process(true)
 		collision_layer = 0
 		collision_mask = 0
 		if has_node("Col"):
 			$Col.set_deferred("disabled", true)
 	elif _runs_authority_ai():
-		# Host 权威：沿 Path 推进 + 致命 HitZone
+		_setup_navigation_agent()
 		_setup_server_hit_zone()
+		collision_mask = 1
+	else:
+		set_process(false)
 
+	_sync_target_pos = global_position
 	_setup_breath_animation_player()
 
 
 func bind_path_follow(follow: PathFollow3D) -> void:
 	path_follow = follow
+	_cache_path_anchor()
 
 
 func _resolve_path_follow() -> void:
@@ -55,6 +79,16 @@ func _resolve_path_follow() -> void:
 	var parent_node := get_parent()
 	if parent_node is PathFollow3D:
 		path_follow = parent_node as PathFollow3D
+
+
+func _cache_path_anchor() -> void:
+	if path_follow == null:
+		return
+	var path3d := path_follow.get_parent()
+	if path3d != null and path3d.get_parent() is Node3D:
+		_path_anchor = path3d.get_parent() as Node3D
+	elif path3d is Node3D:
+		_path_anchor = path3d as Node3D
 
 
 func _runs_authority_ai() -> bool:
@@ -74,13 +108,28 @@ func _apply_ghost_material() -> void:
 	ghost_mesh.material_override = mat
 
 
+func _setup_navigation_agent() -> void:
+	if _nav != null:
+		return
+	_nav = NavigationAgent3D.new()
+	_nav.name = "NavAgent"
+	_nav.path_desired_distance = 0.6
+	_nav.target_desired_distance = 0.5
+	_nav.radius = 0.35
+	_nav.height = 1.6
+	_nav.avoidance_enabled = false
+	add_child(_nav)
+	await get_tree().physics_frame
+	_nav.target_position = global_position
+
+
 func _setup_server_hit_zone() -> void:
 	if _hit_zone != null:
 		return
 	_hit_zone = Area3D.new()
 	_hit_zone.name = "HitZone"
 	_hit_zone.collision_layer = 0
-	_hit_zone.collision_mask = 1 << 1  # player 层（瞎子 capsule）
+	_hit_zone.collision_mask = 1 << 1
 	_hit_zone.monitoring = true
 	_hit_zone.monitorable = false
 	var hs := CollisionShape3D.new()
@@ -115,29 +164,160 @@ func _physics_process(delta: float) -> void:
 	if GameManager.is_game_over:
 		return
 	if path_follow == null or not is_instance_valid(path_follow):
-		push_warning("[GhostAI] path_follow 未绑定，无法巡逻")
+		push_warning("[GhostAI] path_follow 未绑定")
 		return
 
-	# Host：恒定速度推进 progress_ratio，fmod 保证 0~1 闭合循环
+	match state:
+		State.PATROL:
+			_tick_patrol(delta)
+		State.CHASE:
+			_tick_chase(delta)
+		State.RETURN:
+			_tick_return(delta)
+
+
+func _process(delta: float) -> void:
+	if _runs_authority_ai():
+		return
+	if state == State.PATROL:
+		return
+	global_position = global_position.lerp(_sync_target_pos, clampf(client_lerp_speed * delta, 0.0, 1.0))
+
+
+func _tick_patrol(delta: float) -> void:
 	path_follow.progress_ratio = fmod(
 		path_follow.progress_ratio + loop_progress_per_sec * delta,
 		1.0
 	)
-	# 子节点自动跟随 PathFollow3D 变换，无需 move_and_slide
 	velocity = Vector3.ZERO
 
 	if NetworkManager.is_multiplayer_game:
 		_sync_ghost_progress.rpc(path_follow.progress_ratio)
 
-
-@rpc("authority", "unreliable", "call_remote")
-func _sync_ghost_progress(ratio: float) -> void:
-	if _runs_authority_ai():
+	var blind := _find_blind_player()
+	if blind == null:
 		return
-	_resolve_path_follow()
-	if path_follow == null or not is_instance_valid(path_follow):
+	var dist := global_position.distance_to(blind.global_position)
+	if dist > detect_range:
+		return
+	if not _has_clear_hit_line(blind):
+		return
+
+	_last_patrol_ratio = path_follow.progress_ratio
+	_detach_global_pos = global_position
+	_detach_from_path_follow()
+	_set_state(State.CHASE)
+
+
+func _tick_chase(delta: float) -> void:
+	var blind := _find_blind_player()
+	if blind == null:
+		_begin_return()
+		return
+
+	var dist := global_position.distance_to(blind.global_position)
+	if dist > lose_distance or not _has_clear_hit_line(blind):
+		_begin_return()
+		return
+
+	_nav_move_toward(blind.global_position, chase_speed, delta)
+
+	if NetworkManager.is_multiplayer_game:
+		_sync_ghost_position.rpc(global_position)
+
+
+func _tick_return(delta: float) -> void:
+	var dist := global_position.distance_to(_detach_global_pos)
+	if dist <= return_arrive_distance:
+		_attach_to_path_follow(_last_patrol_ratio)
+		_set_state(State.PATROL)
+		if NetworkManager.is_multiplayer_game:
+			_sync_ghost_progress.rpc(path_follow.progress_ratio)
+		return
+
+	_nav_move_toward(_detach_global_pos, chase_speed, delta)
+
+	if NetworkManager.is_multiplayer_game:
+		_sync_ghost_position.rpc(global_position)
+
+
+func _begin_return() -> void:
+	_set_state(State.RETURN)
+
+
+func _set_state(new_state: State) -> void:
+	if state == new_state:
+		return
+	state = new_state
+	velocity = Vector3.ZERO
+	if NetworkManager.is_multiplayer_game:
+		_sync_ghost_state.rpc(state, _last_patrol_ratio, global_position)
+
+
+func _detach_from_path_follow() -> void:
+	if path_follow == null or get_parent() != path_follow:
+		return
+	var world_pos := global_position
+	var anchor := _path_anchor if _path_anchor != null else path_follow.get_parent() as Node3D
+	if anchor == null:
+		return
+	path_follow.remove_child(self)
+	anchor.add_child(self)
+	global_position = world_pos
+
+
+func _attach_to_path_follow(ratio: float) -> void:
+	if path_follow == null:
 		return
 	path_follow.progress_ratio = ratio
+	if get_parent() != path_follow:
+		var parent_node := get_parent()
+		if parent_node != null:
+			parent_node.remove_child(self)
+		path_follow.add_child(self)
+	position = Vector3.ZERO
+	velocity = Vector3.ZERO
+	if _nav != null:
+		_nav.target_position = global_position
+
+
+func _nav_move_toward(target: Vector3, speed: float, _delta: float) -> void:
+	if _nav == null:
+		_move_direct_flat(target, speed)
+		return
+	_nav.target_position = target
+	var next_pos := _nav.get_next_path_position()
+	var diff := next_pos - global_position
+	diff.y = 0.0
+	if diff.length_squared() < 0.0004:
+		_move_direct_flat(target, speed)
+		return
+	var dir := diff.normalized()
+	velocity.x = dir.x * speed
+	velocity.y = 0.0
+	velocity.z = dir.z * speed
+	move_and_slide()
+
+
+func _move_direct_flat(target: Vector3, speed: float) -> void:
+	var diff := target - global_position
+	diff.y = 0.0
+	if diff.length_squared() < 0.0004:
+		velocity = Vector3.ZERO
+		move_and_slide()
+		return
+	var dir := diff.normalized()
+	velocity.x = dir.x * speed
+	velocity.y = 0.0
+	velocity.z = dir.z * speed
+	move_and_slide()
+
+
+func _find_blind_player() -> Node3D:
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.has_method("get_role") and p.get_role() == GameManager.ROLE_BLIND:
+			return p as Node3D
+	return null
 
 
 func _has_clear_hit_line(target: Node3D) -> bool:
@@ -148,6 +328,44 @@ func _has_clear_hit_line(target: Node3D) -> bool:
 	query.exclude = [get_rid(), target.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	return hit.is_empty()
+
+
+@rpc("authority", "reliable", "call_remote")
+func _sync_ghost_state(new_state: State, patrol_ratio: float, world_pos: Vector3) -> void:
+	if _runs_authority_ai():
+		return
+	_resolve_path_follow()
+	state = new_state
+	_last_patrol_ratio = patrol_ratio
+	_sync_target_pos = world_pos
+	match state:
+		State.PATROL:
+			_attach_to_path_follow(patrol_ratio)
+		State.CHASE, State.RETURN:
+			if get_parent() == path_follow:
+				_detach_from_path_follow()
+			global_position = world_pos
+
+
+@rpc("authority", "unreliable", "call_remote")
+func _sync_ghost_progress(ratio: float) -> void:
+	if _runs_authority_ai():
+		return
+	if state != State.PATROL:
+		return
+	_resolve_path_follow()
+	if path_follow == null:
+		return
+	path_follow.progress_ratio = ratio
+
+
+@rpc("authority", "unreliable", "call_remote")
+func _sync_ghost_position(pos: Vector3) -> void:
+	if _runs_authority_ai():
+		return
+	_sync_target_pos = pos
+	if global_position.distance_to(pos) > 4.0:
+		global_position = pos
 
 
 func _setup_breath_animation_player() -> void:
@@ -172,11 +390,16 @@ func _setup_breath_animation_player() -> void:
 
 func reset_ai_state(_reset_pos: Vector3) -> void:
 	_hit_latched = false
-	velocity = Vector3.ZERO
-	if path_follow != null and is_instance_valid(path_follow):
-		path_follow.progress_ratio = 0.0
-		if NetworkManager.is_multiplayer_game and _runs_authority_ai():
-			_sync_ghost_progress.rpc(path_follow.progress_ratio)
+	_last_patrol_ratio = 0.0
+	_detach_global_pos = global_position
+	if _runs_authority_ai() and path_follow != null:
+		_attach_to_path_follow(0.0)
+		_set_state(State.PATROL)
+		if NetworkManager.is_multiplayer_game:
+			_sync_ghost_progress.rpc(0.0)
+	elif path_follow != null:
+		state = State.PATROL
+		_attach_to_path_follow(0.0)
 
 
 func reset_to_initial_state(reset_pos: Vector3) -> void:
