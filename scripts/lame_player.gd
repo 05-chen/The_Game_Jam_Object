@@ -114,7 +114,7 @@ func _can_control_local_camera() -> bool:
 		and GameManager.is_game_active \
 		and not GameManager.is_game_over \
 		and GameManager.current_role == GameManager.ROLE_LAME \
-		and not GameManager.dev_paused
+		and not GameManager.is_paused
 
 
 func _process(delta: float) -> void:

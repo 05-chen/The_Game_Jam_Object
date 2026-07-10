@@ -32,9 +32,8 @@ var blind_medicines: int = 0
 var lame_painkillers: int = 0
 var checkpoint_data: Dictionary = {}
 
-# 开发者演示开关
-var dev_invincible: bool = false
-var dev_paused: bool = false
+## ESC 暂停菜单状态（联机 Host 权威同步）
+var is_paused: bool = false
 
 ## 本地 UI / 信号节流：避免每物理帧 emit 拖垮语音与 HUD
 var _mental_last_emitted: float = 100.0
@@ -52,8 +51,7 @@ signal puzzle_solved(total: int)
 signal stage_cleared()
 signal medicine_collected(role: int)
 signal checkpoint_saved()
-signal dev_invincible_changed(enabled: bool)
-signal dev_pause_changed(paused: bool)
+signal pause_changed(paused: bool)
 
 # 初始化函数
 func _ready() -> void:
@@ -69,8 +67,7 @@ func reset_game() -> void:
 	puzzles_solved = 0
 	blind_medicines = 0
 	lame_painkillers = 0
-	dev_invincible = false
-	dev_paused = false
+	is_paused = false
 	checkpoint_data = {}
 	advance_to_main_on_puzzle_clear = false
 	_mental_last_emitted = mental_health_max
@@ -82,17 +79,12 @@ func reset_game() -> void:
 func update_mental_health(delta: float) -> void:
 	if is_game_over:
 		return
-	if dev_invincible:
-		return
 	var prev := mental_health
 	mental_health = clampf(mental_health - mental_health_decay_rate * delta, 0.0, mental_health_max)
 	target_mental_health = mental_health
 	if absf(mental_health - _mental_last_emitted) >= STAT_EMIT_EPSILON or (prev > 0.0 and mental_health <= 0.0):
 		_mental_last_emitted = mental_health
 		mental_health_changed.emit(mental_health)
-	# [测试用，已关闭] 心理值归零触发失败
-	# if mental_health <= 0.0:
-	# 	trigger_game_over(false)
 
 # 更新疼痛值函数 - 仅由本地瘸子玩家调用
 func update_pain(delta: float) -> void:
@@ -106,9 +98,6 @@ func update_pain(delta: float) -> void:
 	if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_prev != tier_now or pain_value >= pain_max:
 		_pain_last_emitted = pain_value
 		pain_value_changed.emit(pain_value)
-	# [测试用，已关闭] 疼痛值满触发失败
-	# if pain_value >= pain_max:
-	# 	trigger_game_over(false)
 
 # 增加心理值函数
 func add_mental_health(amount: float) -> void:
@@ -172,8 +161,6 @@ func solve_puzzle() -> void:
 func trigger_game_over(won: bool) -> void:
 	if is_game_over:
 		return
-	if dev_invincible and not won:
-		return
 	if NetworkManager.is_multiplayer_game:
 		if not multiplayer.is_server():
 			_request_game_over.rpc_id(1, won)
@@ -185,8 +172,6 @@ func trigger_game_over(won: bool) -> void:
 
 func _apply_game_over_state(won: bool) -> void:
 	if is_game_over:
-		return
-	if dev_invincible and not won:
 		return
 	is_game_over = true
 	is_game_won = won
@@ -234,13 +219,9 @@ func apply_checkpoint_state() -> void:
 	mental_health_changed.emit(mental_health)
 	pain_value_changed.emit(pain_value)
 
-func set_dev_invincible(enabled: bool) -> void:
-	dev_invincible = enabled
-	dev_invincible_changed.emit(enabled)
-
-func set_dev_pause(paused: bool) -> void:
-	dev_paused = paused
-	dev_pause_changed.emit(paused)
+func set_paused(paused: bool) -> void:
+	is_paused = paused
+	pause_changed.emit(paused)
 
 # 获取语音音量乘数函数
 func get_voice_multiplier() -> float:

@@ -12,8 +12,6 @@ extends Node3D
 @export_group("关卡")
 ## 美术大场景（通关测试关后进入）
 @export var level_scene: PackedScene = preload("res://scenes/house_f_1.tscn")
-## 勾选则跳过测试关，直接进入大场景（调试用）
-@export var skip_tutorial: bool = false
 
 @export_group("玩家 Prefab")
 @export var blind_player_scene: PackedScene = preload("res://scenes/blind_player.tscn")
@@ -25,7 +23,6 @@ var _item_idx: int = 0  # 物品命名计数器
 var _ghost_spawn_positions: Dictionary = {}
 var _ui_layer: CanvasLayer = null
 var _pause_panel: PanelContainer = null
-var _dev_label: Label = null
 var _fade_rect: ColorRect = null
 const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
@@ -39,11 +36,11 @@ func _ready() -> void:
 		push_warning("[GameWorld] 已禁用单机模式，请从联机大厅开始游戏")
 		call_deferred("_return_to_lobby")
 		return
-	_setup_demo_ui()
+	_setup_game_ui()
 	_level_flow = GameLevelFlow.new()
 	_level_flow.name = "LevelFlow"
 	add_child(_level_flow)
-	_level_flow.setup(self, level_scene, skip_tutorial)
+	_level_flow.setup(self, level_scene, false)
 	_level_flow.build_initial_room()
 	await get_tree().process_frame
 	await _init_players_from_spawn_point()
@@ -55,7 +52,6 @@ func _ready() -> void:
 		GameManager.advance_to_main_on_puzzle_clear = false
 	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
-	GameManager.dev_invincible_changed.connect(_on_dev_invincible_changed)
 	_schedule_spawn_release()
 
 
@@ -258,108 +254,20 @@ func _make_item(pos: Vector3, type_id: int) -> void:
 	item.medicine_type = type_id
 	add_child(item)
 
-# [已修改] 生成幽灵函数 - 区分 Host/Client
-func _spawn_ghost() -> void:
-	var scn = load("res://scenes/ghost.tscn")
-	var g = scn.instantiate()
-	g.name = "Ghost"
-	g.position = Vector3(5, 1, -5)
-	# 多人：Ghost AI 仅在 Host 端运行
-	g.is_host_controlled = multiplayer.is_server()
-	g.set_multiplayer_authority(1)
-	add_child(g)
-	_ghost_spawn_positions[g.get_path()] = g.global_position
-
 # 胜利/失败：联机回大厅
 func _on_game_over(won: bool) -> void:
 	await get_tree().create_timer(2.0).timeout
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
 
-# 输入处理函数 - 暂停 + 开发者快捷键
+# 输入处理：仅 ESC 暂停菜单
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			_request_toggle_pause()
-		elif event.keycode == KEY_G:
-			_request_toggle_invincible()
-		elif event.keycode == KEY_K:
-			_request_clear_ghosts()
-		elif event.keycode == KEY_P:
-			_request_reset_status()
-
-func _request_toggle_invincible() -> void:
-	if multiplayer.is_server():
-		_apply_invincible.rpc(not GameManager.dev_invincible)
-	else:
-		_request_toggle_invincible_rpc.rpc_id(1)
-
-@rpc("any_peer", "reliable")
-func _request_toggle_invincible_rpc() -> void:
-	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
-		return
-	if NetworkManager.is_multiplayer_game:
-		var sender_id := multiplayer.get_remote_sender_id()
-		if not NetworkManager.is_trusted_sender(sender_id):
-			return
-	_apply_invincible.rpc(not GameManager.dev_invincible)
-
-@rpc("authority", "reliable", "call_local")
-func _apply_invincible(enabled: bool) -> void:
-	GameManager.set_dev_invincible(enabled)
-
-func _request_clear_ghosts() -> void:
-	if multiplayer.is_server():
-		_apply_clear_ghosts.rpc()
-	else:
-		_request_clear_ghosts_rpc.rpc_id(1)
-
-@rpc("any_peer", "reliable")
-func _request_clear_ghosts_rpc() -> void:
-	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
-		return
-	if NetworkManager.is_multiplayer_game:
-		var sender_id := multiplayer.get_remote_sender_id()
-		if not NetworkManager.is_trusted_sender(sender_id):
-			return
-	_apply_clear_ghosts.rpc()
-
-@rpc("authority", "reliable", "call_local")
-func _apply_clear_ghosts() -> void:
-	for g in get_tree().get_nodes_in_group("ghost_ai"):
-		if g is Node3D:
-			var ghost := g as Node3D
-			ghost.global_position = Vector3(0, -100, 0)
-
-func _request_reset_status() -> void:
-	if multiplayer.is_server():
-		_apply_reset_status.rpc()
-	else:
-		_request_reset_status_rpc.rpc_id(1)
-
-@rpc("any_peer", "reliable")
-func _request_reset_status_rpc() -> void:
-	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
-		return
-	if NetworkManager.is_multiplayer_game:
-		var sender_id := multiplayer.get_remote_sender_id()
-		if not NetworkManager.is_trusted_sender(sender_id):
-			return
-	_apply_reset_status.rpc()
-
-@rpc("authority", "reliable", "call_local")
-func _apply_reset_status() -> void:
-	GameManager.mental_health = GameManager.mental_health_max
-	GameManager.pain_value = 0.0
-	GameManager.target_mental_health = GameManager.mental_health_max
-	GameManager.target_pain_value = 0.0
-	GameManager.is_game_over = false
-	GameManager.is_game_won = false
-	GameManager.mental_health_changed.emit(GameManager.mental_health)
-	GameManager.pain_value_changed.emit(GameManager.pain_value)
 
 func _request_toggle_pause() -> void:
 	if multiplayer.is_server():
-		_apply_pause_state.rpc(not GameManager.dev_paused)
+		_apply_pause_state.rpc(not GameManager.is_paused)
 	else:
 		_request_toggle_pause_rpc.rpc_id(1)
 
@@ -371,11 +279,11 @@ func _request_toggle_pause_rpc() -> void:
 		var sender_id := multiplayer.get_remote_sender_id()
 		if not NetworkManager.is_trusted_sender(sender_id):
 			return
-	_apply_pause_state.rpc(not GameManager.dev_paused)
+	_apply_pause_state.rpc(not GameManager.is_paused)
 
 @rpc("authority", "reliable", "call_local")
 func _apply_pause_state(paused: bool) -> void:
-	GameManager.set_dev_pause(paused)
+	GameManager.set_paused(paused)
 	get_tree().paused = paused
 	if paused and VoiceChatManager and VoiceChatManager.has_method("pause_voice"):
 		VoiceChatManager.pause_voice("pause_game")
@@ -464,11 +372,7 @@ func _request_save_checkpoint_rpc() -> void:
 			return
 	_save_checkpoint_now()
 
-func _on_dev_invincible_changed(enabled: bool) -> void:
-	if _dev_label:
-		_dev_label.visible = enabled
-
-func _setup_demo_ui() -> void:
+func _setup_game_ui() -> void:
 	_ui_layer = CanvasLayer.new()
 	_ui_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_ui_layer)
@@ -478,13 +382,6 @@ func _setup_demo_ui() -> void:
 	_fade_rect.color = Color(0, 0, 0, 1)
 	_fade_rect.visible = false
 	_ui_layer.add_child(_fade_rect)
-
-	_dev_label = Label.new()
-	_dev_label.text = "[DEV]"
-	_dev_label.position = Vector2(8, 8)
-	_dev_label.modulate = Color(1, 0.3, 0.3, 0.9)
-	_dev_label.visible = GameManager.dev_invincible
-	_ui_layer.add_child(_dev_label)
 
 	_pause_panel = PanelContainer.new()
 	_pause_panel.visible = false
@@ -509,7 +406,7 @@ func _setup_demo_ui() -> void:
 	btn_retry.text = "从存档点重试"
 	btn_retry.pressed.connect(func() -> void:
 		_request_respawn_from_checkpoint()
-		if GameManager.dev_paused:
+		if GameManager.is_paused:
 			_request_toggle_pause()
 	)
 	vb.add_child(btn_retry)
@@ -521,8 +418,8 @@ func _setup_demo_ui() -> void:
 
 func _update_pause_ui() -> void:
 	if _pause_panel:
-		_pause_panel.visible = GameManager.dev_paused
-		if GameManager.dev_paused:
+		_pause_panel.visible = GameManager.is_paused
+		if GameManager.is_paused:
 			InputMouseGuard.release_for_ui()
 
 func _request_return_lobby() -> void:
@@ -543,7 +440,7 @@ func _request_return_lobby_rpc() -> void:
 
 @rpc("authority", "reliable", "call_local")
 func _apply_return_lobby() -> void:
-	GameManager.set_dev_pause(false)
+	GameManager.set_paused(false)
 	get_tree().paused = false
 	InputMouseGuard.release_for_ui()
 	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
