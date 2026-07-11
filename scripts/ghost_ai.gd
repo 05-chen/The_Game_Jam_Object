@@ -376,12 +376,12 @@ func _setup_breath_animation_player() -> void:
 	var anim := Animation.new()
 	anim.length = 2.0
 	anim.loop_mode = Animation.LOOP_LINEAR
-	var tr := anim.add_track(Animation.TYPE_VALUE)
-	anim.track_set_path(tr, NodePath("GhostMesh:scale"))
-	anim.value_track_set_update_mode(tr, Animation.UPDATE_CONTINUOUS)
-	anim.track_insert_key(tr, 0.0, Vector3.ONE)
-	anim.track_insert_key(tr, 1.0, Vector3(1.2, 1.2, 1.2))
-	anim.track_insert_key(tr, 2.0, Vector3.ONE)
+	var track_idx := anim.add_track(Animation.TYPE_VALUE)
+	anim.track_set_path(track_idx, NodePath("GhostMesh:scale"))
+	anim.value_track_set_update_mode(track_idx, Animation.UPDATE_CONTINUOUS)
+	anim.track_insert_key(track_idx, 0.0, Vector3.ONE)
+	anim.track_insert_key(track_idx, 1.0, Vector3(1.2, 1.2, 1.2))
+	anim.track_insert_key(track_idx, 2.0, Vector3.ONE)
 	var lib := AnimationLibrary.new()
 	lib.add_animation("breath", anim)
 	ap.add_animation_library("", lib)
