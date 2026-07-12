@@ -20,6 +20,9 @@ var is_collected: bool = false
 var _pickup_animating: bool = false
 var _gameplay_committed: bool = false
 var _idle_phase: float = 0.0
+var _spawn_position: Vector3 = Vector3.ZERO
+var _initial_mesh_scale: Vector3 = Vector3.ONE
+var _pickup_tween: Tween = null
 
 @onready var mesh: MeshInstance3D = $Mesh
 @onready var col: CollisionShape3D = $Col
@@ -39,9 +42,41 @@ func interact(role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_fro
 
 
 func _ready() -> void:
+	_spawn_position = position
 	initial_y = position.y
+	if mesh:
+		_initial_mesh_scale = mesh.scale
 	collision_layer = 8
 	_setup_look()
+
+
+func is_fully_collected() -> bool:
+	return is_collected and not _pickup_animating
+
+
+func is_respawnable_medicine() -> bool:
+	return medicine_type == TYPE_MENTAL or medicine_type == TYPE_PAIN
+
+
+func reset_for_respawn() -> void:
+	if _pickup_tween != null and is_instance_valid(_pickup_tween):
+		_pickup_tween.kill()
+		_pickup_tween = null
+	is_collected = false
+	_pickup_animating = false
+	_gameplay_committed = false
+	visible = true
+	collision_layer = 8
+	if col:
+		col.disabled = false
+	if mesh:
+		mesh.scale = _initial_mesh_scale
+	position = _spawn_position
+	initial_y = _spawn_position.y
+	if lbl:
+		lbl.visible = true
+	_setup_look()
+	_idle_phase = rotation.y
 
 
 func _setup_look() -> void:
@@ -116,13 +151,15 @@ func _authority_apply_pickup_fx(collector_pos: Vector3) -> void:
 	col.set_deferred("disabled", true)
 	if lbl:
 		lbl.visible = false
-	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(self, "global_position", collector_pos, pickup_fx_duration)\
+	if _pickup_tween != null and is_instance_valid(_pickup_tween):
+		_pickup_tween.kill()
+	_pickup_tween = create_tween()
+	_pickup_tween.set_parallel(true)
+	_pickup_tween.tween_property(self, "global_position", collector_pos, pickup_fx_duration)\
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_property(mesh, "scale", Vector3(0.01, 0.01, 0.01), pickup_fx_duration)\
+	_pickup_tween.tween_property(mesh, "scale", Vector3(0.01, 0.01, 0.01), pickup_fx_duration)\
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.chain().tween_callback(_commit_gameplay_after_fx)
+	_pickup_tween.chain().tween_callback(_commit_gameplay_after_fx)
 
 
 func _commit_gameplay_after_fx() -> void:
@@ -140,7 +177,8 @@ func _authority_apply_local() -> void:
 	elif medicine_type == TYPE_PAIN:
 		GameManager.collect_medicine(GameManager.ROLE_LAME)
 	elif medicine_type == TYPE_KEY:
-		GameManager.solve_puzzle()
+		if GameManager.puzzle_clues_enabled:
+			GameManager.solve_puzzle()
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:

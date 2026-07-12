@@ -50,6 +50,7 @@ func _ready() -> void:
 		_ensure_checkpoint_trigger()
 	else:
 		GameManager.advance_to_main_on_puzzle_clear = false
+		GameManager.puzzle_clues_enabled = false
 	_save_checkpoint_now()
 	GameManager.game_over_triggered.connect(_on_game_over)
 	_schedule_spawn_release()

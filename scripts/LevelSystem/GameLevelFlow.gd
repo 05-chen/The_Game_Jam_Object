@@ -6,6 +6,11 @@ class_name GameLevelFlow
 
 enum Phase { TUTORIAL, MAIN }
 
+## 开发测试开关：验收第一关（出生点 / 灯光 / 药品拾取）时保持 true；正式流程改回 false。
+const DEV_SKIP_TUTORIAL := true
+## 开发测试开关：暂不拆 AirWall、不生成 Stage2 鬼魂、不跑通关线索逻辑。
+const DEV_DISABLE_STAGE2_UNLOCK := true
+
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
 const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
 const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
@@ -30,7 +35,7 @@ var _stage2_ghost_spawned: bool = false
 func setup(world: Node3D, main_level_scene: PackedScene, skip: bool) -> void:
 	_world = world
 	level_scene = main_level_scene
-	skip_tutorial = skip
+	skip_tutorial = skip or DEV_SKIP_TUTORIAL
 	LevelManager.register_in_scene_flow(self)
 
 
@@ -97,7 +102,8 @@ func _enter_main_level() -> void:
 	GameManager.puzzles_solved = 0
 	_load_main_level_scene()
 	await _world.get_tree().process_frame
-	_unlock_stage_by_removing_air_wall()
+	if not DEV_DISABLE_STAGE2_UNLOCK:
+		_unlock_stage_by_removing_air_wall()
 	var spawn_pos := resolve_spawn_position()
 	_reposition_players(spawn_pos)
 	if _world.has_method("level_flow_save_checkpoint"):

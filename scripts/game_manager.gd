@@ -28,6 +28,8 @@ var puzzles_solved: int = 0
 var puzzles_required: int = 3
 ## true 时：集齐钥匙触发 stage_cleared（测试关→大场景），而非整局胜利
 var advance_to_main_on_puzzle_clear: bool = false
+## 是否启用 Type=2 钥匙碎片通关线索（开发验收第一关时保持 false）
+var puzzle_clues_enabled: bool = false
 var blind_medicines: int = 0
 var lame_painkillers: int = 0
 var checkpoint_data: Dictionary = {}
@@ -70,6 +72,7 @@ func reset_game() -> void:
 	is_paused = false
 	checkpoint_data = {}
 	advance_to_main_on_puzzle_clear = false
+	puzzle_clues_enabled = false
 	_mental_last_emitted = mental_health_max
 	_pain_last_emitted = 0.0
 	target_mental_health = mental_health_max
@@ -146,6 +149,8 @@ func collect_medicine(role: int) -> void:
 
 # 解决谜题函数
 func solve_puzzle() -> void:
+	if not puzzle_clues_enabled:
+		return
 	puzzles_solved += 1
 	puzzle_solved.emit(puzzles_solved)
 	if puzzles_solved >= puzzles_required:

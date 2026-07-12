@@ -22,6 +22,8 @@ transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.05, 0, 0, 0)
 script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 generate_mesh_trimesh_collision = true
+enable_medicine_respawn = true
+medicine_respawn_delay_sec = 5.0
 
 [node name="Cube_0025" parent="." index="139" unique_id=374725566]
 visible = false
@@ -29,14 +31,8 @@ visible = false
 [node name="Cube1" parent="." index="198" unique_id=78845804]
 visible = false
 
-[node name="Cube3" parent="." index="199" unique_id=1788558931]
-visible = false
-
 [node name="Cube32" parent="." index="276" unique_id=1742268472]
 transform = Transform3D(2.9040992, 0, 0, 0, 2.9040992, 0, 0, 0, 2.9040992, -326.7647, -5.773487, -768.2284)
-
-[node name="Cube33" parent="." index="278" unique_id=567167864]
-visible = false
 
 [node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
@@ -55,11 +51,26 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -69, 60.529503, 386.91046)
 light_energy = 2.369
 omni_range = 13.244
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." index="290" unique_id=1692973178]
+[node name="OmniLight3D4" type="OmniLight3D" parent="." index="290" unique_id=773244767]
+transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 394.34753, 60.529503, 450.98813)
+light_energy = 1.143
+omni_range = 10.459
+
+[node name="OmniLight3D5" type="OmniLight3D" parent="." index="291" unique_id=259328057]
+transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -305.0609, 61.007027, 133.87451)
+light_energy = 1.143
+omni_range = 6.324
+
+[node name="OmniLight3D6" type="OmniLight3D" parent="." index="292" unique_id=613302649]
+transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 294.30692, 63.06363, 161.09518)
+light_energy = 1.143
+omni_range = 13.678
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." index="293" unique_id=1692973178]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.4491, 608.0974, 56.345367)
 light_energy = 0.078
 
-[node name="AirWall" type="StaticBody3D" parent="." index="291" unique_id=1231932780]
+[node name="AirWall" type="StaticBody3D" parent="." index="294" unique_id=1231932780]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -365.91443, -4.722002, 1.7379351)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="AirWall" index="0" unique_id=2075977032]
@@ -70,7 +81,7 @@ shape = SubResource("BoxShape3D_sbl5i")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 451.9046, 25.694452, 2.9957228)
 shape = SubResource("BoxShape3D_d6g4c")
 
-[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="292" unique_id=142590855]
+[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="295" unique_id=142590855]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
 
 [node name="GhostPatrolPath" type="Path3D" parent="GhostSpawnPoint_Stage2" index="0" unique_id=687411446]
@@ -79,5 +90,37 @@ curve = SubResource("Curve3D_sbl5i")
 [node name="PathFollow3D" type="PathFollow3D" parent="GhostSpawnPoint_Stage2/GhostPatrolPath" index="0" unique_id=319214243]
 transform = Transform3D(0.9997807, 0, -0.020530576, 0, 1, 0, 0.020530576, 0, 0.9997807, -5.1864777, -3.203261, 5.045044)
 
-[node name="MedicineItem" parent="." index="293" instance=ExtResource("3_medicine")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -164.08008, 10.046878, -168.02925)
+[node name="MedicineItem" parent="." index="296" unique_id=940719838 instance=ExtResource("3_medicine")]
+transform = Transform3D(4.875, 0, 0, 0, 4.875, 0, 0, 0, 4.875, -323.31372, 1.8509114, 164.11238)
+
+[node name="MedicineItem2" parent="." index="297" unique_id=1058382966 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.655, 0, 0, 0, 9.655, 0, 0, 0, 9.655, -410.8478, 16.268131, 105.713264)
+
+[node name="MedicineItem3" parent="." index="298" unique_id=1091418389 instance=ExtResource("3_medicine")]
+transform = Transform3D(7.86, 0, 0, 0, 7.86, 0, 0, 0, 7.86, 400.46353, 8.000333, 70.04127)
+medicine_type = 1
+
+[node name="MedicineItem4" parent="." index="299" unique_id=1966779422 instance=ExtResource("3_medicine")]
+transform = Transform3D(4.545, 0, 0, 0, 4.545, 0, 0, 0, 4.545, -379.07727, 9.666854, 685.4023)
+
+[node name="MedicineItem5" parent="." index="300" unique_id=1012203784 instance=ExtResource("3_medicine")]
+transform = Transform3D(7.855, 0, 0, 0, 7.855, 0, 0, 0, 7.855, -441.33365, -2.9021215, 663.2135)
+medicine_type = 1
+
+[node name="MedicineItem6" parent="." index="301" unique_id=283553683 instance=ExtResource("3_medicine")]
+transform = Transform3D(7.005, 0, 0, 0, 7.005, 0, 0, 0, 7.005, -88.585625, 9.3783455, 703.79407)
+medicine_type = 1
+
+[node name="MedicineItem7" parent="." index="302" unique_id=1903004429 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.735, 0, 0, 0, 9.735, 0, 0, 0, 9.735, -63.482826, -2.4123821, 496.35556)
+
+[node name="MedicineItem8" parent="." index="303" unique_id=2085915504 instance=ExtResource("3_medicine")]
+transform = Transform3D(6.9361157, 0, 4.085684, 0, 8.05, 0, -4.085684, 0, 6.9361157, 28.964912, 6.658073, 525.3458)
+medicine_type = 1
+
+[node name="MedicineItem9" parent="." index="304" unique_id=1929111436 instance=ExtResource("3_medicine")]
+transform = Transform3D(8.92, 0, 0, 0, 8.92, 0, 0, 0, 8.92, 316.5191, 1.2372065, 558.5186)
+
+[node name="MedicineItem10" parent="." index="305" unique_id=414799909 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 365.94324, 23.286648, 379.0044)
+medicine_type = 1

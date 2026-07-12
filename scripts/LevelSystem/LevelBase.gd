@@ -33,12 +33,85 @@ const GROUP_PATROL := "lvl_patrol"
 ## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成三角网格碰撞（StaticBody3D，静态、不受重力，同 room_builder）。
 @export var generate_mesh_trimesh_collision: bool = false
 
+@export_group("药品刷新")
+## 大场景：本关 Type 0/1 药品全部拾取后，等待若干秒在原位重新刷新（不含 Type 2 通关线索）。
+@export var enable_medicine_respawn: bool = false
+@export var medicine_respawn_delay_sec: float = 5.0
+
+var _medicines: Array[Node] = []
+var _medicine_respawn_timer: Timer = null
+var _medicine_respawn_pending: bool = false
+
 
 func _ready() -> void:
 	LevelManager.hide_mask()
 	_post_configure_imported_scene()
+	if enable_medicine_respawn:
+		_setup_medicine_respawn()
 	if _scene_has_navigation_region():
 		_init_navigation_ai()
+
+
+func _process(_delta: float) -> void:
+	if not enable_medicine_respawn or _medicine_respawn_pending:
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if _medicines.is_empty() or not _all_level_medicines_collected():
+		return
+	_medicine_respawn_pending = true
+	_medicine_respawn_timer.start()
+
+
+func _setup_medicine_respawn() -> void:
+	_medicines = _find_level_medicines()
+	if _medicines.is_empty():
+		push_warning("[LevelBase] 已开启药品刷新，但未找到可刷新的药品节点")
+		return
+	_medicine_respawn_timer = Timer.new()
+	_medicine_respawn_timer.name = "MedicineRespawnTimer"
+	_medicine_respawn_timer.one_shot = true
+	_medicine_respawn_timer.wait_time = medicine_respawn_delay_sec
+	_medicine_respawn_timer.timeout.connect(_on_medicine_respawn_timeout)
+	add_child(_medicine_respawn_timer)
+
+
+func _find_level_medicines() -> Array[Node]:
+	var result: Array[Node] = []
+	for node in find_children("*", "StaticBody3D", true, false):
+		if node.has_method("is_respawnable_medicine") and node.call("is_respawnable_medicine"):
+			result.append(node)
+	return result
+
+
+func _all_level_medicines_collected() -> bool:
+	for med in _medicines:
+		if med == null or not is_instance_valid(med):
+			continue
+		if not med.has_method("is_fully_collected") or not med.call("is_fully_collected"):
+			return false
+	return true
+
+
+func _on_medicine_respawn_timeout() -> void:
+	if NetworkManager.is_multiplayer_game:
+		if multiplayer.is_server():
+			_rpc_respawn_level_medicines.rpc()
+	else:
+		_respawn_level_medicines_local()
+
+
+@rpc("authority", "reliable", "call_local")
+func _rpc_respawn_level_medicines() -> void:
+	_respawn_level_medicines_local()
+
+
+func _respawn_level_medicines_local() -> void:
+	_medicine_respawn_pending = false
+	for med in _medicines:
+		if med != null and is_instance_valid(med) and med.has_method("reset_for_respawn"):
+			med.call("reset_for_respawn")
+	print("[LevelBase] Type 0/1 药品已在原位刷新（数量=%d）" % _medicines.size())
 
 
 func _post_configure_imported_scene() -> void:
