@@ -28,10 +28,12 @@ const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
 var _spawn_release_token: int = 0
 var _players_spawned: bool = false
+var _pause_input_relay: Node = null
+const PAUSE_UI_LAYER: int = 100
 
 # 初始化函数
 func _ready() -> void:
-	process_mode = Node.PROCESS_MODE_ALWAYS
+	# 根节点保持 PAUSABLE（默认），暂停时子节点（玩家/关卡/AI）才会真正停更
 	if not NetworkManager.is_multiplayer_game:
 		push_warning("[GameWorld] 已禁用单机模式，请从联机大厅开始游戏")
 		call_deferred("_return_to_lobby")
@@ -260,11 +262,23 @@ func _on_game_over(won: bool) -> void:
 	await get_tree().create_timer(2.0).timeout
 	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
-# 输入处理：仅 ESC 暂停菜单
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_ESCAPE:
-			_request_toggle_pause()
+# 输入处理：由 PauseInputRelay（PROCESS_MODE_ALWAYS）轮询 pause_game，暂停时也能响应 ESC
+func _setup_pause_input_relay() -> void:
+	if _pause_input_relay != null and is_instance_valid(_pause_input_relay):
+		return
+	_pause_input_relay = Node.new()
+	_pause_input_relay.name = "PauseInputRelay"
+	_pause_input_relay.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_pause_input_relay)
+	_pause_input_relay.process.connect(_poll_pause_input)
+
+
+func _poll_pause_input() -> void:
+	if not Input.is_action_just_pressed("pause_game"):
+		return
+	if not NetworkManager.is_multiplayer_game:
+		return
+	_request_toggle_pause()
 
 func _request_toggle_pause() -> void:
 	if multiplayer.is_server():
@@ -374,7 +388,9 @@ func _request_save_checkpoint_rpc() -> void:
 	_save_checkpoint_now()
 
 func _setup_game_ui() -> void:
+	_setup_pause_input_relay()
 	_ui_layer = CanvasLayer.new()
+	_ui_layer.layer = PAUSE_UI_LAYER
 	_ui_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_ui_layer)
 
@@ -422,6 +438,17 @@ func _update_pause_ui() -> void:
 		_pause_panel.visible = GameManager.is_paused
 		if GameManager.is_paused:
 			InputMouseGuard.release_for_ui()
+	_update_blind_vision_for_pause()
+
+
+func _update_blind_vision_for_pause() -> void:
+	var blind := get_node_or_null("BlindPlayer")
+	if blind == null or not blind.has_node("UI/VisionMask"):
+		return
+	var mask: CanvasItem = blind.get_node("UI/VisionMask")
+	if mask:
+		# 暂停时隐藏瞎子全屏视野遮罩，否则会盖住 Pause 面板（瘸子无此问题）
+		mask.visible = not GameManager.is_paused
 
 func _request_return_lobby() -> void:
 	if multiplayer.is_server():

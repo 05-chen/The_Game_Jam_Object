@@ -127,6 +127,7 @@ func _ready() -> void:
 	GameManager.game_over_triggered.connect(_on_over)
 	GameManager.medicine_collected.connect(_on_med)
 	GameManager.puzzle_solved.connect(_on_puzzle)
+	GameManager.pause_changed.connect(_on_pause_changed)
 		# 场景灯全关后，仅 SpotLight + 下方半圆孔内可见；孔外由 VisionMask shader 叠纯黑
 	_disable_scene_lights_for_blind_view()
 	_setup_spot_light()
@@ -167,6 +168,8 @@ func _exit_tree() -> void:
 		GameManager.medicine_collected.disconnect(_on_med)
 	if GameManager.puzzle_solved.is_connected(_on_puzzle):
 		GameManager.puzzle_solved.disconnect(_on_puzzle)
+	if GameManager.pause_changed.is_connected(_on_pause_changed):
+		GameManager.pause_changed.disconnect(_on_pause_changed)
 
 
 func _disable_scene_lights_for_blind_view() -> void:
@@ -238,6 +241,8 @@ func _get_blind_flat_forward() -> Vector3:
 
 
 func _process(delta: float) -> void:
+	if GameManager.is_paused:
+		return
 	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
 		var target_mh := GameManager.target_mental_health if NetworkManager.is_multiplayer_game and not multiplayer.is_server() else GameManager.mental_health
 		_display_mh = lerpf(_display_mh, target_mh, clampf(VISION_LERP_SPEED * delta, 0.0, 1.0))
@@ -259,6 +264,9 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if is_spawning:
+		velocity = Vector3.ZERO
+		return
+	if GameManager.is_paused:
 		velocity = Vector3.ZERO
 		return
 	if not GameManager.is_game_active or GameManager.is_game_over:
@@ -521,6 +529,13 @@ func _on_over(won: bool) -> void:
 func _on_med(role: int) -> void:
 	if role == GameManager.ROLE_BLIND:
 		_show_msg("服药成功! 心理值恢复!")
+
+
+func _on_pause_changed(paused: bool) -> void:
+	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
+		return
+	if vision_mask:
+		vision_mask.visible = not paused
 
 
 func _on_puzzle(total: int) -> void:

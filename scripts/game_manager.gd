@@ -80,7 +80,7 @@ func reset_game() -> void:
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
-	if is_game_over:
+	if is_game_over or is_paused:
 		return
 	var prev := mental_health
 	mental_health = clampf(mental_health - mental_health_decay_rate * delta, 0.0, mental_health_max)
@@ -91,7 +91,7 @@ func update_mental_health(delta: float) -> void:
 
 # 更新疼痛值函数 - 仅由本地瘸子玩家调用
 func update_pain(delta: float) -> void:
-	if is_game_over:
+	if is_game_over or is_paused:
 		return
 	var prev := pain_value
 	pain_value = clampf(pain_value + pain_increase_rate * delta, 0.0, pain_max)

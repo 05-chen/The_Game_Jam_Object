@@ -118,6 +118,8 @@ func _can_control_local_camera() -> bool:
 
 
 func _process(delta: float) -> void:
+	if GameManager.is_paused:
+		return
 	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
 		var target_pain := GameManager.target_pain_value
 		if not NetworkManager.is_multiplayer_game or _is_local_lame_pain_authority():
@@ -136,6 +138,9 @@ func _apply_look(relative: Vector2) -> void:
 
 func _physics_process(delta: float) -> void:
 	if is_spawning:
+		velocity = Vector3.ZERO
+		return
+	if GameManager.is_paused:
 		velocity = Vector3.ZERO
 		return
 	_sync_to_carry_anchor(delta)

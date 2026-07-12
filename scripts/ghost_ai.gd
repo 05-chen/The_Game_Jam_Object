@@ -161,7 +161,7 @@ func _on_hit_body_entered(body: Node3D) -> void:
 func _physics_process(delta: float) -> void:
 	if not _runs_authority_ai():
 		return
-	if GameManager.is_game_over:
+	if GameManager.is_game_over or GameManager.is_paused:
 		return
 	if path_follow == null or not is_instance_valid(path_follow):
 		push_warning("[GhostAI] path_follow 未绑定")
@@ -177,6 +177,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if GameManager.is_paused:
+		return
 	if _runs_authority_ai():
 		return
 	if state == State.PATROL:
