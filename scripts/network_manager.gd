@@ -3,6 +3,9 @@ extends Node
 
 # ── 常量 ──
 const MAX_MEMBERS = 2
+## 统一联机大厅场景路径（废弃 game_room.tscn，全局只回 lobby）
+const LOBBY_SCENE: String = "res://scenes/lobby.tscn"
+const GAME_WORLD_SCENE: String = "res://scenes/game_world.tscn"
 ## 语音专用 P2P 通道，与 SteamMultiplayerPeer 游戏流量分离
 const VOICE_P2P_CHANNEL: int = 3
 const VOICE_P2P_READ_LIMIT: int = 32
@@ -291,9 +294,10 @@ func _on_peer_disconnected(_id: int) -> void:
 	if is_host: guest_connected = false
 	remote_peer_id = 0
 	if not is_host and is_multiplayer_game:
-		_last_session_interrupt_message = "联机连接已中断，已为你安全返回主菜单。"
+		_last_session_interrupt_message = "联机连接已中断，已为你安全返回大厅。"
 		session_interrupted.emit(_last_session_interrupt_message)
 		hard_cleanup("peer_disconnected_guest")
+		_safe_return_to_lobby()
 	player_disconnected.emit()
 
 func _on_connected_to_server() -> void:
@@ -340,7 +344,7 @@ func start_game_all(host_role: int) -> void:
 	else:
 		GameManager.current_role = GameManager.ROLE_LAME if host_role == GameManager.ROLE_BLIND else GameManager.ROLE_BLIND
 	GameManager.reset_game()
-	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
+	get_tree().change_scene_to_file(GAME_WORLD_SCENE)
 
 func host_start_game(host_role: int) -> void:
 	if is_host and guest_connected:
@@ -420,3 +424,13 @@ func consume_session_interrupt_message() -> String:
 	var msg := _last_session_interrupt_message
 	_last_session_interrupt_message = ""
 	return msg
+
+
+func _safe_return_to_lobby() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var current := tree.current_scene
+	if current != null and current.scene_file_path == LOBBY_SCENE:
+		return
+	tree.change_scene_to_file(LOBBY_SCENE)

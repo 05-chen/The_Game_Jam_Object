@@ -24,6 +24,7 @@ var _mp_session_bar: Node = null
 # 初始化函数
 func _ready() -> void:
 	InputMouseGuard.release_for_ui()
+	_show_interrupt_popup_if_needed()
 
 	# 隐藏不再需要的 IP 输入区域（保留节点兼容 .tscn）
 	var ip_box = find_child("IpBox", true, false)
@@ -207,6 +208,16 @@ func _on_back() -> void:
 		_mp_session_bar.queue_free()
 		_mp_session_bar = null
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+func _show_interrupt_popup_if_needed() -> void:
+	var msg := NetworkManager.consume_session_interrupt_message()
+	if msg == "":
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "联机提示"
+	dlg.dialog_text = msg
+	add_child(dlg)
+	dlg.popup_centered()
 
 # 重置 UI 函数
 func _reset_ui() -> void:

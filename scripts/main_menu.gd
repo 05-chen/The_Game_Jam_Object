@@ -37,7 +37,7 @@ func _show_interrupt_popup_if_needed() -> void:
 # 	get_tree().change_scene_to_file("res://scenes/game_world.tscn")
 
 func _on_multi() -> void:
-	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 func _on_quit() -> void:
 	NetworkManager.close_room()

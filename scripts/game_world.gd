@@ -57,7 +57,7 @@ func _ready() -> void:
 
 
 func _return_to_lobby() -> void:
-	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 
 ## GameLevelFlow 调用的淡入淡出 / 存档钩子
@@ -258,7 +258,7 @@ func _make_item(pos: Vector3, type_id: int) -> void:
 # 胜利/失败：联机回大厅
 func _on_game_over(won: bool) -> void:
 	await get_tree().create_timer(2.0).timeout
-	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 # 输入处理：仅 ESC 暂停菜单
 func _unhandled_input(event: InputEvent) -> void:
@@ -444,7 +444,7 @@ func _apply_return_lobby() -> void:
 	GameManager.set_paused(false)
 	get_tree().paused = false
 	InputMouseGuard.release_for_ui()
-	get_tree().change_scene_to_file("res://scenes/lobby.tscn")
+	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 func _ensure_checkpoint_trigger() -> void:
 	var existing := get_node_or_null("Checkpoint")

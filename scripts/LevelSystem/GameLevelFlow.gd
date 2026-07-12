@@ -8,8 +8,8 @@ enum Phase { TUTORIAL, MAIN }
 
 ## 开发测试开关：验收第一关（出生点 / 灯光 / 药品拾取）时保持 true；正式流程改回 false。
 const DEV_SKIP_TUTORIAL := true
-## 开发测试开关：暂不拆 AirWall、不生成 Stage2 鬼魂、不跑通关线索逻辑。
-const DEV_DISABLE_STAGE2_UNLOCK := true
+## 开发测试开关：false = 进入大地图后拆 AirWall 并生成 Stage2 鬼魂。
+const DEV_DISABLE_STAGE2_UNLOCK := false
 
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
 const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
@@ -43,6 +43,7 @@ func build_initial_room() -> void:
 	if skip_tutorial and level_scene:
 		phase = Phase.MAIN
 		_load_main_level_scene()
+		_schedule_stage2_unlock_if_needed()
 		return
 	phase = Phase.TUTORIAL
 	var room := Node3D.new()
@@ -102,8 +103,7 @@ func _enter_main_level() -> void:
 	GameManager.puzzles_solved = 0
 	_load_main_level_scene()
 	await _world.get_tree().process_frame
-	if not DEV_DISABLE_STAGE2_UNLOCK:
-		_unlock_stage_by_removing_air_wall()
+	_apply_stage2_unlock_if_enabled()
 	var spawn_pos := resolve_spawn_position()
 	_reposition_players(spawn_pos)
 	if _world.has_method("level_flow_save_checkpoint"):
@@ -125,6 +125,27 @@ func _load_main_level_scene() -> void:
 	_level_node = level
 
 
+func _schedule_stage2_unlock_if_needed() -> void:
+	if DEV_DISABLE_STAGE2_UNLOCK:
+		return
+	call_deferred("_deferred_stage2_unlock")
+
+
+func _deferred_stage2_unlock() -> void:
+	if DEV_DISABLE_STAGE2_UNLOCK or _world == null:
+		return
+	await _world.get_tree().process_frame
+	if not is_inside_tree():
+		return
+	_apply_stage2_unlock_if_enabled()
+
+
+func _apply_stage2_unlock_if_enabled() -> void:
+	if DEV_DISABLE_STAGE2_UNLOCK:
+		return
+	_unlock_stage_by_removing_air_wall()
+
+
 ## Host：拆 AirWall + 全网 RPC 生成 Stage2 鬼魂（不依赖 MultiplayerSpawner，避免 reparent 丢失）
 func _unlock_stage_by_removing_air_wall() -> void:
 	if not multiplayer.is_server():
@@ -135,7 +156,7 @@ func _unlock_stage_by_removing_air_wall() -> void:
 		_rpc_spawn_stage2_ghost.rpc()
 
 
-@rpc("any_peer", "call_local")
+@rpc("authority", "reliable", "call_local")
 func _rpc_remove_air_wall() -> void:
 	_remove_air_wall_local()
 
