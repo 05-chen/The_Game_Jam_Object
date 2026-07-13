@@ -16,6 +16,18 @@ extends CharacterBody3D
 
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
+@export_group("拾取范围")
+## 横向半径倍数（瘸子背在肩上，默认比瞎子更大）
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.8
+## 身前最大距离倍数
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.2
+## 探测原点下移（米）：相机在肩上，下移后才能够地面药品
+@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 1.35
+## 垂直容忍半高（米）：越大越能拾取脚下/低处物品
+@export_range(0.1, 2.5, 0.05) var pickup_vertical_half_m: float = 1.2
+## 勾选后在运行中显示半透明拾取圆柱与数值
+@export var pickup_show_debug: bool = false
+
 ## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
 const PAIN_LERP_SPEED: float = 10.0
 
@@ -44,6 +56,7 @@ var _carry_anchor_ref: Node3D = null
 @onready var voice_label: Label = $UI/Stats/VoiceLabel
 @onready var pain_overlay: ColorRect = $UI/PainOverlay
 @onready var msg_label: Label = $UI/MsgLabel
+var _pickup_debug_root: Node3D = null
 
 # 初始化函数
 func _ready() -> void:
@@ -89,6 +102,18 @@ func _ready() -> void:
 	_display_pain = GameManager.pain_value
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
+	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_LAME:
+		_pickup_debug_root = PlayerPickupUtil.ensure_debug_root(self)
+
+
+func get_pickup_probe_config() -> Dictionary:
+	return {
+		"radius_scale": pickup_radius_scale,
+		"forward_scale": pickup_forward_scale,
+		"origin_lower_m": pickup_origin_lower_m,
+		"vertical_half_m": pickup_vertical_half_m,
+		"use_camera_origin": true,
+	}
 
 
 func _on_spawning_finished() -> void:
@@ -124,6 +149,8 @@ func _process(delta: float) -> void:
 			target_pain = GameManager.pain_value
 		_display_pain = lerpf(_display_pain, target_pain, clampf(PAIN_LERP_SPEED * delta, 0.0, 1.0))
 		_apply_pain_overlay_from_display()
+	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_LAME:
+		PlayerPickupUtil.sync_debug_visual(self, _pickup_debug_root, false)
 
 
 func _apply_look(relative: Vector2) -> void:

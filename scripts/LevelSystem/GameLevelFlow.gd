@@ -100,6 +100,7 @@ func _enter_main_level() -> void:
 	_clear_tutorial_content()
 	phase = Phase.MAIN
 	GameManager.advance_to_main_on_puzzle_clear = false
+	GameManager.puzzle_clues_enabled = false
 	GameManager.puzzles_solved = 0
 	_reset_stage1_clue_progress()
 	_load_main_level_scene()

@@ -48,6 +48,8 @@ func _ready() -> void:
 	await _init_players_from_spawn_point()
 	if _level_flow.is_tutorial():
 		GameManager.advance_to_main_on_puzzle_clear = true
+		GameManager.puzzle_clues_enabled = true
+		GameManager.puzzles_solved = 0
 		_spawn_items()
 		_ensure_checkpoint_trigger()
 	else:

@@ -10,6 +10,18 @@ extends CharacterBody3D
 
 @export var move_speed: float = 4.0
 @export var mouse_sensitivity: float = 0.003
+
+@export_group("拾取范围")
+## 横向半径倍数（1.0 ≈ 身高/6，越大越容易够到侧面）
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.0
+## 身前最大距离倍数（1.0 ≈ 一个身高）
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.0
+## 探测原点下移（米），越大越利于够地面物品
+@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 0.0
+## 垂直容忍半高（米）；-1 表示与横向半径相同
+@export_range(-1.0, 2.5, 0.05) var pickup_vertical_half_m: float = -1.0
+## 勾选后在运行中显示半透明拾取圆柱与数值
+@export var pickup_show_debug: bool = false
 ## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）
 @export var lock_camera_pitch: bool = true
 @export var visual_smooth: float = 18.0
@@ -74,6 +86,7 @@ var _last_synced_mh: float = -1.0
 const MH_NET_SYNC_EPSILON: float = 0.5
 ## 场景里 Camera3D 初始俯仰角，运行时保持不变
 var _locked_camera_pitch: float = 0.0
+var _pickup_debug_root: Node3D = null
 
 @onready var camera: Camera3D = $Camera3D
 @onready var ui_root: CanvasLayer = $UI
@@ -136,6 +149,18 @@ func _ready() -> void:
 	_apply_vision_radius_from_display()
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
+	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_BLIND:
+		_pickup_debug_root = PlayerPickupUtil.ensure_debug_root(self)
+
+
+func get_pickup_probe_config() -> Dictionary:
+	return {
+		"radius_scale": pickup_radius_scale,
+		"forward_scale": pickup_forward_scale,
+		"origin_lower_m": pickup_origin_lower_m,
+		"vertical_half_m": pickup_vertical_half_m,
+		"use_camera_origin": true,
+	}
 
 
 func _on_spawning_finished() -> void:
@@ -249,6 +274,8 @@ func _process(delta: float) -> void:
 		_apply_vision_radius_from_display()
 	if is_local and GameManager.current_role == GameManager.ROLE_BLIND:
 		_lock_blind_camera_pitch()
+	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_BLIND:
+		PlayerPickupUtil.sync_debug_visual(self, _pickup_debug_root, true)
 	if not NetworkManager.is_multiplayer_game or multiplayer.is_server():
 		return
 	# 位移与 velocity 由 MultiplayerSynchronizer 从权威端同步；此处仅平滑远程视角
