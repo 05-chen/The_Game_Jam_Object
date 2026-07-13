@@ -3,7 +3,7 @@
 # medicine_type 含义（在 Inspector 里设置）：
 #   0 = 镇定剂（仅瞎子）
 #   1 = 止痛药（仅瘸子）
-#   2 = 钥匙/线索（测试关集钥匙 或 医院 Stage1 的 Clue1/2/3，由当前关卡阶段自动区分）
+#   2 = 钥匙/线索（测试关钥匙；医院关卡线索请同时设置下方 hospital_stage）
 
 extends NetworkedAuthorityInteractable
 
@@ -19,7 +19,7 @@ enum HospitalStage {
 }
 
 @export_group("关卡阶段")
-## 第一阶段专用 / 第二阶段专用；进入对应阶段后由 GameLevelFlow 统一显隐
+## 第一阶段 / 第二阶段（药品与通关线索通用；与 GameLevelFlow 分组 stage1_only / stage2_only 联动）
 @export var hospital_stage: HospitalStage = HospitalStage.STAGE_1
 
 @export var medicine_type: int = 0
@@ -85,6 +85,7 @@ func set_stage_interaction_active(active: bool) -> void:
 			add_to_group("interactable_pickup")
 		collision_layer = _saved_collision_layer
 		_set_all_collision_shapes_enabled(true)
+		_setup_look()
 	else:
 		if is_in_group("interactable_pickup"):
 			remove_from_group("interactable_pickup")
@@ -165,10 +166,14 @@ func _setup_look() -> void:
 		mat.emission = Color(0.2, 1.0, 0.3)
 		lbl.text = "止疼药"
 	elif medicine_type == TYPE_KEY:
-		if _is_hospital_stage1_clue_context():
+		if GameManager.puzzle_clues_enabled:
+			mat.albedo_color = Color(1.0, 0.8, 0.0)
+			mat.emission = Color(1.0, 0.8, 0.0)
+			lbl.text = "钥匙碎片"
+		elif _is_hospital_clue_item():
 			mat.albedo_color = Color(0.95, 0.82, 0.25)
 			mat.emission = Color(0.9, 0.7, 0.15)
-			lbl.text = "线索"
+			lbl.text = "线索·二" if hospital_stage == HospitalStage.STAGE_2 else "线索"
 		else:
 			mat.albedo_color = Color(1.0, 0.8, 0.0)
 			mat.emission = Color(1.0, 0.8, 0.0)
@@ -269,8 +274,8 @@ func _authority_apply_local() -> void:
 		TYPE_KEY:
 			if GameManager.puzzle_clues_enabled:
 				GameManager.solve_puzzle()
-			elif _is_hospital_stage1_clue_context():
-				_notify_stage1_clue_pickup()
+			elif _is_hospital_clue_item():
+				_notify_hospital_clue_pickup()
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:
@@ -341,14 +346,21 @@ func _get_players_root() -> Node:
 	return null
 
 
-func _is_hospital_stage1_clue_context() -> bool:
+func _is_hospital_clue_item() -> bool:
 	if medicine_type != TYPE_KEY:
 		return false
+	if GameManager.puzzle_clues_enabled:
+		return false
 	var flow := get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
-	return flow != null and flow.is_hospital_stage1_active()
+	return flow != null and flow.phase == GameLevelFlow.Phase.MAIN
 
 
-func _notify_stage1_clue_pickup() -> void:
+func _notify_hospital_clue_pickup() -> void:
 	var flow := get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
-	if flow != null:
-		flow.notify_stage1_clue_collected(String(name))
+	if flow == null:
+		return
+	match hospital_stage:
+		HospitalStage.STAGE_1:
+			flow.notify_stage1_clue_collected(String(name))
+		HospitalStage.STAGE_2:
+			flow.notify_stage2_clue_collected(String(name))

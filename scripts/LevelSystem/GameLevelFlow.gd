@@ -22,6 +22,8 @@ const GHOST_SPAWN_POINT_STAGE2 := &"GhostSpawnPoint_Stage2"
 const GHOST_STAGE2_NAME := &"GhostStage2"
 const GHOST_SCENE: PackedScene = preload("res://scenes/ghost.tscn")
 const STAGE1_CLUE_NAMES: Array[StringName] = [&"Clue1", &"Clue2", &"Clue3"]
+## Stage2 通关线索节点名（在 house_f_1 摆放后把名称填进此列表）
+const STAGE2_CLUE_NAMES: Array[StringName] = []
 
 var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
@@ -37,6 +39,7 @@ var _stage2_ghost_spawned: bool = false
 var _current_hospital_stage: int = 1
 var _stage_transition_in_progress: bool = false
 var _stage1_clues_collected: Dictionary = {}
+var _stage2_clues_collected: Dictionary = {}
 
 
 func setup(world: Node3D, main_level_path: String = MAIN_LEVEL_SCENE_PATH) -> void:
@@ -252,14 +255,15 @@ func _refresh_level_medicine_respawn_pool() -> void:
 
 func _reset_stage1_clue_progress() -> void:
 	_stage1_clues_collected.clear()
+	_stage2_clues_collected.clear()
 
 
-## 拾取 Clue1/2/3 时由 medicine_item 调用（全网同步拾取动画后触发）
+## 拾取 Stage1 线索（medicine_type=2 且 hospital_stage=STAGE_1）时调用
 func notify_stage1_clue_collected(clue_name: String) -> void:
-	if phase != Phase.MAIN:
+	if phase != Phase.MAIN or _current_hospital_stage != 1:
 		return
 	if not STAGE1_CLUE_NAMES.has(StringName(clue_name)):
-		push_warning("[GameLevelFlow] 未知线索名: %s" % clue_name)
+		push_warning("[GameLevelFlow] 未知 Stage1 线索: %s" % clue_name)
 		return
 	if _stage1_clues_collected.has(clue_name):
 		return
@@ -272,6 +276,30 @@ func notify_stage1_clue_collected(clue_name: String) -> void:
 	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
 		return
 	request_unlock_stage2()
+
+
+## 拾取 Stage2 线索（medicine_type=2 且 hospital_stage=STAGE_2）时调用
+func notify_stage2_clue_collected(clue_name: String) -> void:
+	if phase != Phase.MAIN or _current_hospital_stage != 2:
+		return
+	if STAGE2_CLUE_NAMES.is_empty():
+		push_warning("[GameLevelFlow] 收到 Stage2 线索 %s，但 STAGE2_CLUE_NAMES 尚未配置" % clue_name)
+		_show_stage_msg("获得线索 %s" % clue_name)
+		return
+	if not STAGE2_CLUE_NAMES.has(StringName(clue_name)):
+		push_warning("[GameLevelFlow] 未知 Stage2 线索: %s" % clue_name)
+		return
+	if _stage2_clues_collected.has(clue_name):
+		return
+	_stage2_clues_collected[clue_name] = true
+	var total: int = _stage2_clues_collected.size()
+	_show_stage_msg("获得线索 %s（%d/%d）" % [clue_name, total, STAGE2_CLUE_NAMES.size()])
+	print("[GameLevelFlow] Stage2 线索已收集: %s (%d/%d)" % [clue_name, total, STAGE2_CLUE_NAMES.size()])
+	if total < STAGE2_CLUE_NAMES.size():
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	# TODO: Stage2 全部线索集齐后的通关逻辑（胜利/切场景）在此扩展
 
 
 ## Stage1 通关后由玩法脚本调用，无快捷键、无自动触发。
