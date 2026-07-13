@@ -16,7 +16,9 @@ const ITEM_RENDER_LAYER := 8
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
 @export_flags_3d_physics var environment_mask: int = 1
-@export var client_probe_slack_m: float = 0.6
+@export var client_probe_slack_m: float = 0.8
+## 视线检测：射线打在台面/地面时，落点距道具中心在此范围内仍视为可拾取
+@export var pickup_los_surface_slack_m: float = 2.0
 @export var pickup_fx_duration: float = 0.15
 
 var initial_y: float = 0.0
@@ -123,7 +125,8 @@ func can_role_pickup(role: int) -> bool:
 
 
 func get_pickup_focus_position() -> Vector3:
-	return global_position + Vector3(0, 0.5, 0)
+	# 使用 global_transform，兼容 house_f_1 里放大的预制体实例
+	return global_transform * Vector3(0, 0.2, 0)
 
 
 func _can_role_collect(role: int) -> bool:
@@ -225,7 +228,11 @@ func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node
 	params.collision_mask = environment_mask
 	params.exclude = [request_player.get_rid(), get_rid()]
 	var hit := space.intersect_ray(params)
-	return hit.is_empty()
+	if hit.is_empty():
+		return true
+	# 道具常摆在桌子/台面上：射线先打到台面时，落点靠近道具仍算可见
+	var hit_pos: Vector3 = hit.position
+	return hit_pos.distance_to(to) <= pickup_los_surface_slack_m
 
 
 func _get_interact_probe(request_player: Node3D) -> Dictionary:
@@ -239,17 +246,30 @@ func _get_interact_probe(request_player: Node3D) -> Dictionary:
 
 
 func _resolve_request_player(sender_id: int) -> Node3D:
-	var parent := get_parent()
-	if parent == null:
+	var root := _get_players_root()
+	if root == null:
 		return null
 	if sender_id == 1:
 		if GameManager.current_role == GameManager.ROLE_BLIND:
-			return parent.get_node_or_null("BlindPlayer") as Node3D
-		return parent.get_node_or_null("LamePlayer") as Node3D
+			return root.get_node_or_null("BlindPlayer") as Node3D
+		return root.get_node_or_null("LamePlayer") as Node3D
 	if sender_id == NetworkManager.remote_peer_id:
 		if GameManager.current_role == GameManager.ROLE_BLIND:
-			return parent.get_node_or_null("LamePlayer") as Node3D
-		return parent.get_node_or_null("BlindPlayer") as Node3D
+			return root.get_node_or_null("LamePlayer") as Node3D
+		return root.get_node_or_null("BlindPlayer") as Node3D
+	return null
+
+
+## 测试关药品在 GameWorld 下；Stage1 药品在 GameWorld/Level 下，不能只用 get_parent()
+func _get_players_root() -> Node:
+	var scene := get_tree().current_scene
+	if scene != null and scene.get_node_or_null("BlindPlayer") != null:
+		return scene
+	var node: Node = self
+	while node != null:
+		if node.get_node_or_null("BlindPlayer") != null:
+			return node
+		node = node.get_parent()
 	return null
 
 

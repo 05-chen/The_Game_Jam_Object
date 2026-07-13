@@ -13,13 +13,13 @@ extends CharacterBody3D
 
 @export_group("拾取范围")
 ## 横向半径倍数（1.0 ≈ 身高/6，越大越容易够到侧面）
-@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.0
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.35
 ## 身前最大距离倍数（1.0 ≈ 一个身高）
-@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.0
-## 探测原点下移（米），越大越利于够地面物品
-@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 0.0
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.25
+## 探测原点下移（米），越大越利于够地面/台面物品
+@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 0.4
 ## 垂直容忍半高（米）；-1 表示与横向半径相同
-@export_range(-1.0, 2.5, 0.05) var pickup_vertical_half_m: float = -1.0
+@export_range(-1.0, 2.5, 0.05) var pickup_vertical_half_m: float = 0.9
 ## 勾选后在运行中显示半透明拾取圆柱与数值
 @export var pickup_show_debug: bool = false
 ## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）

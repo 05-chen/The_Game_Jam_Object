@@ -18,13 +18,13 @@ extends CharacterBody3D
 
 @export_group("拾取范围")
 ## 横向半径倍数（瘸子背在肩上，默认比瞎子更大）
-@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.8
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 2.0
 ## 身前最大距离倍数
-@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.2
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.35
 ## 探测原点下移（米）：相机在肩上，下移后才能够地面药品
-@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 1.35
+@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 1.5
 ## 垂直容忍半高（米）：越大越能拾取脚下/低处物品
-@export_range(0.1, 2.5, 0.05) var pickup_vertical_half_m: float = 1.2
+@export_range(0.1, 2.5, 0.05) var pickup_vertical_half_m: float = 1.5
 ## 勾选后在运行中显示半透明拾取圆柱与数值
 @export var pickup_show_debug: bool = false
 
