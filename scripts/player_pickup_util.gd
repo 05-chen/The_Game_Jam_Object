@@ -47,15 +47,18 @@ static func build_probe(player: Node3D, use_flat_forward: bool) -> Dictionary:
 static func is_in_front_pickup_zone(probe: Dictionary, target_pos: Vector3) -> bool:
 	if probe.is_empty():
 		return false
-	var to := target_pos - probe.origin
-	var forward: Vector3 = probe.forward
+	var origin: Vector3 = probe["origin"]
+	var forward: Vector3 = probe["forward"]
+	var max_forward: float = probe["max_forward"]
+	var pickup_radius: float = probe["pickup_radius"]
+	var to: Vector3 = target_pos - origin
 	if to.dot(forward) <= 0.0:
 		return false
-	var along := to.dot(forward)
-	if along > float(probe.max_forward):
+	var along: float = to.dot(forward)
+	if along > max_forward:
 		return false
-	var lateral := to - forward * along
-	return lateral.length() <= float(probe.pickup_radius)
+	var lateral: Vector3 = to - forward * along
+	return lateral.length() <= pickup_radius
 
 
 static func find_best_pickup_target(
@@ -66,8 +69,9 @@ static func find_best_pickup_target(
 	var probe := build_probe(player, use_flat_forward)
 	if probe.is_empty():
 		return {}
+	var probe_origin: Vector3 = probe["origin"]
 	var best: Node = null
-	var best_dist := INF
+	var best_dist: float = INF
 	for node in player.get_tree().get_nodes_in_group("interactable_pickup"):
 		if node == null or not is_instance_valid(node):
 			continue
@@ -82,10 +86,10 @@ static func find_best_pickup_target(
 			target_pos = node.call("get_pickup_focus_position")
 		if not is_in_front_pickup_zone(probe, target_pos):
 			continue
-		var dist := probe.origin.distance_to(target_pos)
+		var dist: float = probe_origin.distance_to(target_pos)
 		if dist < best_dist:
 			best_dist = dist
 			best = node
 	if best == null:
 		return {}
-	return {"target": best, "origin": probe.origin}
+	return {"target": best, "origin": probe_origin}

@@ -190,19 +190,19 @@ func _authority_apply_local() -> void:
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:
-	var use_flat := request_player.has_method("get_role") \
+	var use_flat: bool = request_player.has_method("get_role") \
 		and request_player.get_role() == GameManager.ROLE_BLIND
 	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
 	if probe.is_empty():
 		return false
 	if has_interact_from:
-		var server_origin: Vector3 = probe.origin
+		var server_origin: Vector3 = probe["origin"]
 		if interact_from.distance_to(server_origin) > client_probe_slack_m:
 			return false
-	var item_center := get_pickup_focus_position()
+	var item_center: Vector3 = get_pickup_focus_position()
 	if not PlayerPickupUtil.is_in_front_pickup_zone(probe, item_center):
 		return false
-	return _has_clear_environment_los(probe.origin, item_center, request_player)
+	return _has_clear_environment_los(probe["origin"], item_center, request_player)
 
 
 func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node3D) -> bool:
@@ -215,12 +215,12 @@ func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node
 
 
 func _get_interact_probe(request_player: Node3D) -> Dictionary:
-	var use_flat := request_player.has_method("get_role") \
+	var use_flat: bool = request_player.has_method("get_role") \
 		and request_player.get_role() == GameManager.ROLE_BLIND
 	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
 	if probe.is_empty():
 		return {"from": request_player.global_position + Vector3(0, 0.9, 0)}
-	return {"from": probe.origin}
+	return {"from": probe["origin"]}
 
 
 func _resolve_request_player(sender_id: int) -> Node3D:

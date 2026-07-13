@@ -505,8 +505,8 @@ func _try_interact() -> void:
 	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_BLIND, true)
 	if hit.is_empty():
 		return
-	var target: Node = hit.target
-	var from: Vector3 = hit.origin
+	var target: Node = hit["target"]
+	var from: Vector3 = hit["origin"]
 	if target.has_method("interact"):
 		target.interact(GameManager.ROLE_BLIND, from, true)
 
