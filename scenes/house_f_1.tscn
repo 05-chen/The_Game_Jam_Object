@@ -17,6 +17,9 @@ _data = {
 }
 point_count = 99
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_stage1_goal"]
+size = Vector3(12, 6, 12)
+
 [node name="houseF1" unique_id=1977836609 instance=ExtResource("1_bgg21")]
 transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.05, 0, 0, 0)
 script = ExtResource("2_level")
@@ -81,7 +84,15 @@ shape = SubResource("BoxShape3D_sbl5i")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 451.9046, 25.694452, 2.9957228)
 shape = SubResource("BoxShape3D_d6g4c")
 
-[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="295" unique_id=142590855]
+[node name="Stage1Goal" type="Area3D" parent="." index="295"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -420, 3, 220)
+collision_layer = 0
+collision_mask = 2
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Stage1Goal"]
+shape = SubResource("BoxShape3D_stage1_goal")
+
+[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="296" unique_id=142590855]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
 
 [node name="GhostPatrolPath" type="Path3D" parent="GhostSpawnPoint_Stage2" index="0" unique_id=687411446]

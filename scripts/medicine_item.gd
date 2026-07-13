@@ -10,9 +10,8 @@ const ITEM_RENDER_LAYER := 8
 @export var medicine_type: int = 0
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
-@export var max_collect_distance: float = 5.0
 @export_flags_3d_physics var environment_mask: int = 1
-@export var client_probe_slack_m: float = 2.5
+@export var client_probe_slack_m: float = 0.6
 @export var pickup_fx_duration: float = 0.15
 
 var initial_y: float = 0.0
@@ -42,6 +41,7 @@ func interact(role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_fro
 
 
 func _ready() -> void:
+	add_to_group("interactable_pickup")
 	_spawn_position = position
 	initial_y = position.y
 	if mesh:
@@ -106,6 +106,14 @@ func _process(delta: float) -> void:
 	_idle_phase += delta * (TAU / 4.0)
 	position.y = initial_y + sin(_idle_phase * float_speed) * float_height
 	rotation.y = _idle_phase
+
+
+func can_role_pickup(role: int) -> bool:
+	return _can_role_collect(role)
+
+
+func get_pickup_focus_position() -> Vector3:
+	return global_position + Vector3(0, 0.5, 0)
 
 
 func _can_role_collect(role: int) -> bool:
@@ -182,14 +190,19 @@ func _authority_apply_local() -> void:
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:
-	var server_from: Vector3 = _get_interact_probe(request_player)["from"]
-	var from := server_from
-	if has_interact_from and interact_from.distance_to(server_from) <= client_probe_slack_m:
-		from = interact_from
-	var item_center := global_position + Vector3(0, 0.5, 0)
-	if from.distance_to(item_center) > max_collect_distance:
+	var use_flat := request_player.has_method("get_role") \
+		and request_player.get_role() == GameManager.ROLE_BLIND
+	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
+	if probe.is_empty():
 		return false
-	return _has_clear_environment_los(from, item_center, request_player)
+	if has_interact_from:
+		var server_origin: Vector3 = probe.origin
+		if interact_from.distance_to(server_origin) > client_probe_slack_m:
+			return false
+	var item_center := get_pickup_focus_position()
+	if not PlayerPickupUtil.is_in_front_pickup_zone(probe, item_center):
+		return false
+	return _has_clear_environment_los(probe.origin, item_center, request_player)
 
 
 func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node3D) -> bool:
@@ -202,10 +215,12 @@ func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node
 
 
 func _get_interact_probe(request_player: Node3D) -> Dictionary:
-	var cam := request_player.get_node_or_null("Camera3D") as Camera3D
-	if cam:
-		return {"from": cam.global_position}
-	return {"from": request_player.global_position + Vector3(0, 1.2, 0)}
+	var use_flat := request_player.has_method("get_role") \
+		and request_player.get_role() == GameManager.ROLE_BLIND
+	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
+	if probe.is_empty():
+		return {"from": request_player.global_position + Vector3(0, 0.9, 0)}
+	return {"from": probe.origin}
 
 
 func _resolve_request_player(sender_id: int) -> Node3D:

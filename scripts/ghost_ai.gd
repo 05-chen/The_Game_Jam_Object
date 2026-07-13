@@ -34,7 +34,6 @@ var _hit_zone: Area3D = null
 var _hit_latched: bool = false
 var _nav: NavigationAgent3D = null
 var _sync_target_pos: Vector3 = Vector3.ZERO
-var _path_anchor: Node3D = null
 
 @onready var ghost_mesh: MeshInstance3D = $GhostMesh
 
@@ -42,7 +41,6 @@ var _path_anchor: Node3D = null
 func _ready() -> void:
 	add_to_group("ghost_ai")
 	_resolve_path_follow()
-	_cache_path_anchor()
 	_apply_ghost_material()
 
 	if NetworkManager.is_multiplayer_game:
@@ -70,7 +68,6 @@ func _ready() -> void:
 
 func bind_path_follow(follow: PathFollow3D) -> void:
 	path_follow = follow
-	_cache_path_anchor()
 
 
 func _resolve_path_follow() -> void:
@@ -81,20 +78,14 @@ func _resolve_path_follow() -> void:
 		path_follow = parent_node as PathFollow3D
 
 
-func _cache_path_anchor() -> void:
-	if path_follow == null:
-		return
-	var path3d := path_follow.get_parent()
-	if path3d != null and path3d.get_parent() is Node3D:
-		_path_anchor = path3d.get_parent() as Node3D
-	elif path3d is Node3D:
-		_path_anchor = path3d as Node3D
-
-
 func _runs_authority_ai() -> bool:
 	if not NetworkManager.is_multiplayer_game or multiplayer.multiplayer_peer == null:
 		return false
 	return is_multiplayer_authority() and is_host_controlled
+
+
+func _get_level_flow() -> GameLevelFlow:
+	return get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
 
 
 func _apply_ghost_material() -> void:
@@ -144,6 +135,8 @@ func _setup_server_hit_zone() -> void:
 func _on_hit_body_entered(body: Node3D) -> void:
 	if not _runs_authority_ai():
 		return
+	if state != State.CHASE:
+		return
 	if _hit_latched or GameManager.is_game_over:
 		return
 	if not (body is CharacterBody3D):
@@ -155,6 +148,7 @@ func _on_hit_body_entered(body: Node3D) -> void:
 	if not _has_clear_hit_line(body):
 		return
 	_hit_latched = true
+	print("[GhostAI] 追击命中瞎子，触发游戏结束")
 	GameManager.trigger_game_over(false)
 
 
@@ -194,7 +188,9 @@ func _tick_patrol(delta: float) -> void:
 	velocity = Vector3.ZERO
 
 	if NetworkManager.is_multiplayer_game:
-		_sync_ghost_progress.rpc(path_follow.progress_ratio)
+		var flow := _get_level_flow()
+		if flow:
+			flow.broadcast_stage2_ghost_progress(path_follow.progress_ratio)
 
 	var blind := _find_blind_player()
 	if blind == null:
@@ -225,7 +221,9 @@ func _tick_chase(delta: float) -> void:
 	_nav_move_toward(blind.global_position, chase_speed, delta)
 
 	if NetworkManager.is_multiplayer_game:
-		_sync_ghost_position.rpc(global_position)
+		var flow := _get_level_flow()
+		if flow:
+			flow.broadcast_stage2_ghost_position(global_position)
 
 
 func _tick_return(delta: float) -> void:
@@ -234,13 +232,17 @@ func _tick_return(delta: float) -> void:
 		_attach_to_path_follow(_last_patrol_ratio)
 		_set_state(State.PATROL)
 		if NetworkManager.is_multiplayer_game:
-			_sync_ghost_progress.rpc(path_follow.progress_ratio)
+			var flow := _get_level_flow()
+			if flow:
+				flow.broadcast_stage2_ghost_progress(path_follow.progress_ratio)
 		return
 
 	_nav_move_toward(_detach_global_pos, chase_speed, delta)
 
 	if NetworkManager.is_multiplayer_game:
-		_sync_ghost_position.rpc(global_position)
+		var flow := _get_level_flow()
+		if flow:
+			flow.broadcast_stage2_ghost_position(global_position)
 
 
 func _begin_return() -> void:
@@ -253,18 +255,16 @@ func _set_state(new_state: State) -> void:
 	state = new_state
 	velocity = Vector3.ZERO
 	if NetworkManager.is_multiplayer_game:
-		_sync_ghost_state.rpc(state, _last_patrol_ratio, global_position)
+		var flow := _get_level_flow()
+		if flow:
+			flow.broadcast_stage2_ghost_state(state, _last_patrol_ratio, global_position)
 
 
 func _detach_from_path_follow() -> void:
-	if path_follow == null or get_parent() != path_follow:
+	if path_follow == null or top_level:
 		return
 	var world_pos := global_position
-	var anchor := _path_anchor if _path_anchor != null else path_follow.get_parent() as Node3D
-	if anchor == null:
-		return
-	path_follow.remove_child(self)
-	anchor.add_child(self)
+	top_level = true
 	global_position = world_pos
 
 
@@ -272,11 +272,7 @@ func _attach_to_path_follow(ratio: float) -> void:
 	if path_follow == null:
 		return
 	path_follow.progress_ratio = ratio
-	if get_parent() != path_follow:
-		var parent_node := get_parent()
-		if parent_node != null:
-			parent_node.remove_child(self)
-		path_follow.add_child(self)
+	top_level = false
 	position = Vector3.ZERO
 	velocity = Vector3.ZERO
 	if _nav != null:
@@ -332,8 +328,7 @@ func _has_clear_hit_line(target: Node3D) -> bool:
 	return hit.is_empty()
 
 
-@rpc("authority", "reliable", "call_remote")
-func _sync_ghost_state(new_state: State, patrol_ratio: float, world_pos: Vector3) -> void:
+func apply_state_sync(new_state: State, patrol_ratio: float, world_pos: Vector3) -> void:
 	if _runs_authority_ai():
 		return
 	_resolve_path_follow()
@@ -344,13 +339,12 @@ func _sync_ghost_state(new_state: State, patrol_ratio: float, world_pos: Vector3
 		State.PATROL:
 			_attach_to_path_follow(patrol_ratio)
 		State.CHASE, State.RETURN:
-			if get_parent() == path_follow:
+			if not top_level:
 				_detach_from_path_follow()
 			global_position = world_pos
 
 
-@rpc("authority", "unreliable", "call_remote")
-func _sync_ghost_progress(ratio: float) -> void:
+func apply_progress_sync(ratio: float) -> void:
 	if _runs_authority_ai():
 		return
 	if state != State.PATROL:
@@ -361,8 +355,7 @@ func _sync_ghost_progress(ratio: float) -> void:
 	path_follow.progress_ratio = ratio
 
 
-@rpc("authority", "unreliable", "call_remote")
-func _sync_ghost_position(pos: Vector3) -> void:
+func apply_position_sync(pos: Vector3) -> void:
 	if _runs_authority_ai():
 		return
 	_sync_target_pos = pos
@@ -398,7 +391,9 @@ func reset_ai_state(_reset_pos: Vector3) -> void:
 		_attach_to_path_follow(0.0)
 		_set_state(State.PATROL)
 		if NetworkManager.is_multiplayer_game:
-			_sync_ghost_progress.rpc(0.0)
+			var flow := _get_level_flow()
+			if flow:
+				flow.broadcast_stage2_ghost_progress(0.0)
 	elif path_follow != null:
 		state = State.PATROL
 		_attach_to_path_follow(0.0)

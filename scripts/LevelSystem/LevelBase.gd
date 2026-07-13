@@ -30,8 +30,12 @@ const GROUP_PATROL := "lvl_patrol"
 @export var auto_static_body_collision_mask: int = 0
 ## 非空时：为所有 StaticBody3D 额外 add_to_group（便于玩法脚本用 get_nodes_in_group 收集）
 @export var static_body_extra_group: String = ""
-## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成三角网格碰撞（StaticBody3D，静态、不受重力，同 room_builder）。
+## 子树中尚无 StaticBody3D 时，为 MeshInstance3D 自动生成碰撞（默认凸包，比三角网格更适合玩家移动）。
 @export var generate_mesh_trimesh_collision: bool = false
+## true = 凸包碰撞（快、不易卡缝）；false = 三角网格（准但极易卡顿）
+@export var mesh_collision_use_convex: bool = true
+## 网格 AABB 最大边长低于此值（米）时跳过，避免给小装饰物加碰撞
+@export var mesh_collision_min_extent: float = 0.35
 
 @export_group("药品刷新")
 ## 大场景：本关 Type 0/1 药品全部拾取后，等待若干秒在原位重新刷新（不含 Type 2 通关线索）。
@@ -41,6 +45,7 @@ const GROUP_PATROL := "lvl_patrol"
 var _medicines: Array[Node] = []
 var _medicine_respawn_timer: Timer = null
 var _medicine_respawn_pending: bool = false
+var _medicine_respawn_signal_connected: bool = false
 
 
 func _ready() -> void:
@@ -52,15 +57,8 @@ func _ready() -> void:
 		_init_navigation_ai()
 
 
-func _process(_delta: float) -> void:
-	if not enable_medicine_respawn or _medicine_respawn_pending:
-		return
-	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
-		return
-	if _medicines.is_empty() or not _all_level_medicines_collected():
-		return
-	_medicine_respawn_pending = true
-	_medicine_respawn_timer.start()
+func _exit_tree() -> void:
+	_disconnect_medicine_respawn_signal()
 
 
 func _setup_medicine_respawn() -> void:
@@ -74,6 +72,34 @@ func _setup_medicine_respawn() -> void:
 	_medicine_respawn_timer.wait_time = medicine_respawn_delay_sec
 	_medicine_respawn_timer.timeout.connect(_on_medicine_respawn_timeout)
 	add_child(_medicine_respawn_timer)
+	_connect_medicine_respawn_signal()
+
+
+func _connect_medicine_respawn_signal() -> void:
+	if _medicine_respawn_signal_connected:
+		return
+	if not GameManager.medicine_collected.is_connected(_on_medicine_collected):
+		GameManager.medicine_collected.connect(_on_medicine_collected)
+	_medicine_respawn_signal_connected = true
+
+
+func _disconnect_medicine_respawn_signal() -> void:
+	if not _medicine_respawn_signal_connected:
+		return
+	if GameManager.medicine_collected.is_connected(_on_medicine_collected):
+		GameManager.medicine_collected.disconnect(_on_medicine_collected)
+	_medicine_respawn_signal_connected = false
+
+
+func _on_medicine_collected(_role: int) -> void:
+	if not enable_medicine_respawn or _medicine_respawn_pending:
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	if _medicines.is_empty() or not _all_level_medicines_collected():
+		return
+	_medicine_respawn_pending = true
+	_medicine_respawn_timer.start()
 
 
 func _find_level_medicines() -> Array[Node]:
@@ -151,11 +177,25 @@ func _generate_trimesh_collisions_from_meshes() -> void:
 	if not find_children("*", "StaticBody3D", true, false).is_empty():
 		return
 	var env_layer := auto_static_body_collision_layer if auto_static_body_collision_layer != 0 else 1
+	var created := 0
 	for mesh_node in find_children("*", "MeshInstance3D", true, false):
 		var mi := mesh_node as MeshInstance3D
-		if mi.mesh == null:
+		if mi.mesh == null or not mi.visible:
 			continue
-		var shape := mi.mesh.create_trimesh_shape()
+		var mesh_aabb := mi.mesh.get_aabb()
+		var mesh_scale := mi.transform.basis.get_scale().abs()
+		var scaled_size := Vector3(
+			mesh_aabb.size.x * mesh_scale.x,
+			mesh_aabb.size.y * mesh_scale.y,
+			mesh_aabb.size.z * mesh_scale.z
+		)
+		if maxf(scaled_size.x, maxf(scaled_size.y, scaled_size.z)) < mesh_collision_min_extent:
+			continue
+		var shape: Shape3D = null
+		if mesh_collision_use_convex:
+			shape = mi.mesh.create_convex_shape(true)
+		else:
+			shape = mi.mesh.create_trimesh_shape()
 		if shape == null:
 			continue
 		var body := StaticBody3D.new()
@@ -170,6 +210,12 @@ func _generate_trimesh_collisions_from_meshes() -> void:
 			continue
 		parent.add_child(body)
 		body.transform = mi.transform
+		created += 1
+	if created > 0:
+		print("[LevelBase] 自动生成碰撞体 %d 个（%s）" % [
+			created,
+			"凸包" if mesh_collision_use_convex else "三角网格"
+		])
 
 
 func _apply_static_body_physics_and_groups(node: Node) -> void:

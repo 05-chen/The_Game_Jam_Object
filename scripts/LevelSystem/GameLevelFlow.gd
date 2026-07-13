@@ -1,15 +1,13 @@
 extends Node
 class_name GameLevelFlow
 
-## 局内关卡流程（不整场景切换）：测试关 room_builder → 实例化 house_f_1 → 拆 AirWall → RPC 同步生成 Stage2 鬼魂。
-## 由 [LevelManager] 在 GameManager.stage_cleared 时触发；RPC 挂在本节点（GameWorld 子节点）上。
+## 局内关卡流程（不整场景切换）：
+##   测试关 room_builder → 实例化 house_f_1（Stage1，AirWall 阻挡 Stage2）
+##   → Stage1 通关条件达成后，由玩法脚本调用 request_unlock_stage2()
+##      （拆 AirWall + 实例化 Stage2 巡逻区 + 生成鬼魂）。
+## 由 [LevelManager] 在 GameManager.stage_cleared 时触发进入医院；RPC 挂在本节点上。
 
 enum Phase { TUTORIAL, MAIN }
-
-## 开发测试开关：验收第一关（出生点 / 灯光 / 药品拾取）时保持 true；正式流程改回 false。
-const DEV_SKIP_TUTORIAL := true
-## 开发测试开关：false = 进入大地图后拆 AirWall 并生成 Stage2 鬼魂。
-const DEV_DISABLE_STAGE2_UNLOCK := false
 
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
 const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
@@ -22,7 +20,6 @@ const GHOST_SCENE: PackedScene = preload("res://scenes/ghost.tscn")
 
 var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
-var skip_tutorial: bool = false
 
 var _world: Node3D
 var _room_node: Node3D = null
@@ -30,21 +27,18 @@ var _level_node: Node3D = null
 var _entering_main_level: bool = false
 var _air_wall_removed: bool = false
 var _stage2_ghost_spawned: bool = false
+var _stage2_content: Node3D = null
+var _stage2_unlocked: bool = false
 
 
-func setup(world: Node3D, main_level_scene: PackedScene, skip: bool) -> void:
+func setup(world: Node3D, main_level_scene: PackedScene) -> void:
 	_world = world
 	level_scene = main_level_scene
-	skip_tutorial = skip or DEV_SKIP_TUTORIAL
+	add_to_group("game_level_flow")
 	LevelManager.register_in_scene_flow(self)
 
 
 func build_initial_room() -> void:
-	if skip_tutorial and level_scene:
-		phase = Phase.MAIN
-		_load_main_level_scene()
-		_schedule_stage2_unlock_if_needed()
-		return
 	phase = Phase.TUTORIAL
 	var room := Node3D.new()
 	room.name = "TutorialRoom"
@@ -103,7 +97,6 @@ func _enter_main_level() -> void:
 	GameManager.puzzles_solved = 0
 	_load_main_level_scene()
 	await _world.get_tree().process_frame
-	_apply_stage2_unlock_if_enabled()
 	var spawn_pos := resolve_spawn_position()
 	_reposition_players(spawn_pos)
 	if _world.has_method("level_flow_save_checkpoint"):
@@ -123,37 +116,103 @@ func _load_main_level_scene() -> void:
 	level.name = "Level"
 	_world.add_child(level)
 	_level_node = level
+	call_deferred("_strip_stage2_content_from_level")
 
 
-func _schedule_stage2_unlock_if_needed() -> void:
-	if DEV_DISABLE_STAGE2_UNLOCK:
+func _strip_stage2_content_from_level() -> void:
+	if _level_node == null or not is_instance_valid(_level_node):
 		return
-	call_deferred("_deferred_stage2_unlock")
-
-
-func _deferred_stage2_unlock() -> void:
-	if DEV_DISABLE_STAGE2_UNLOCK or _world == null:
+	if _stage2_content != null and is_instance_valid(_stage2_content):
 		return
-	await _world.get_tree().process_frame
-	if not is_inside_tree():
+	var spawn_root := _level_node.find_child(GHOST_SPAWN_POINT_STAGE2, true, false) as Node3D
+	if spawn_root == null:
 		return
-	_apply_stage2_unlock_if_enabled()
+	_stage2_content = spawn_root
+	_level_node.remove_child(_stage2_content)
+	print("[GameLevelFlow] Stage2 内容已从场景剥离，待 Stage1 通关后实例化")
 
 
-func _apply_stage2_unlock_if_enabled() -> void:
-	if DEV_DISABLE_STAGE2_UNLOCK:
+func _instantiate_stage2_content() -> bool:
+	if _stage2_unlocked:
+		return _stage2_content != null and is_instance_valid(_stage2_content)
+	if _stage2_content == null or not is_instance_valid(_stage2_content):
+		push_warning("[GameLevelFlow] 无 Stage2 内容可实例化（%s）" % GHOST_SPAWN_POINT_STAGE2)
+		return false
+	if _stage2_content.get_parent() == null:
+		_level_node.add_child(_stage2_content)
+	_stage2_unlocked = true
+	print("[GameLevelFlow] Stage2 巡逻路线已实例化")
+	return true
+
+
+## Stage1 通关后由玩法脚本（解谜 / 线索 / 检查点等）调用，无快捷键、无自动触发。
+func request_unlock_stage2() -> void:
+	if phase != Phase.MAIN:
 		return
-	_unlock_stage_by_removing_air_wall()
+	if _stage2_unlocked and _air_wall_removed and _stage2_ghost_spawned:
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	_rpc_unlock_stage2.rpc()
 
 
-## Host：拆 AirWall + 全网 RPC 生成 Stage2 鬼魂（不依赖 MultiplayerSpawner，避免 reparent 丢失）
-func _unlock_stage_by_removing_air_wall() -> void:
+@rpc("authority", "reliable", "call_local")
+func _rpc_unlock_stage2() -> void:
+	if phase != Phase.MAIN:
+		return
+	var was_locked := not _stage2_unlocked
+	_remove_air_wall_local()
+	if not _instantiate_stage2_content():
+		return
+	_spawn_stage2_ghost_local()
+	if was_locked and _stage2_unlocked:
+		_show_stage_msg("第一阶段完成，危险区域已开放...")
+
+
+func _find_stage2_ghost() -> CharacterBody3D:
+	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else _world
+	if search_root == null:
+		return null
+	return search_root.find_child(GHOST_STAGE2_NAME, true, false) as CharacterBody3D
+
+
+func broadcast_stage2_ghost_progress(ratio: float) -> void:
 	if not multiplayer.is_server():
 		return
-	if not _air_wall_removed:
-		_rpc_remove_air_wall.rpc()
-	if not _stage2_ghost_spawned:
-		_rpc_spawn_stage2_ghost.rpc()
+	_relay_stage2_ghost_progress.rpc(ratio)
+
+
+func broadcast_stage2_ghost_position(pos: Vector3) -> void:
+	if not multiplayer.is_server():
+		return
+	_relay_stage2_ghost_position.rpc(pos)
+
+
+func broadcast_stage2_ghost_state(new_state: int, patrol_ratio: float, world_pos: Vector3) -> void:
+	if not multiplayer.is_server():
+		return
+	_relay_stage2_ghost_state.rpc(new_state, patrol_ratio, world_pos)
+
+
+@rpc("authority", "unreliable", "call_remote")
+func _relay_stage2_ghost_progress(ratio: float) -> void:
+	var ghost := _find_stage2_ghost()
+	if ghost != null and ghost.has_method("apply_progress_sync"):
+		ghost.apply_progress_sync(ratio)
+
+
+@rpc("authority", "unreliable", "call_remote")
+func _relay_stage2_ghost_position(pos: Vector3) -> void:
+	var ghost := _find_stage2_ghost()
+	if ghost != null and ghost.has_method("apply_position_sync"):
+		ghost.apply_position_sync(pos)
+
+
+@rpc("authority", "reliable", "call_remote")
+func _relay_stage2_ghost_state(new_state: int, patrol_ratio: float, world_pos: Vector3) -> void:
+	var ghost := _find_stage2_ghost()
+	if ghost != null and ghost.has_method("apply_state_sync"):
+		ghost.apply_state_sync(new_state, patrol_ratio, world_pos)
 
 
 @rpc("authority", "reliable", "call_local")

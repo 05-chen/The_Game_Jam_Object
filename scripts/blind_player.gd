@@ -33,8 +33,6 @@ extends CharacterBody3D
 @export var visual_smooth_rot_scale: float = 1.22
 
 const JUMP_VELOCITY: float = 4.5
-const INTERACT_RAY_MASK: int = 8
-const INTERACT_RANGE: float = 5.0
 const VISION_LERP_SPEED: float = 10.0
 ## 圆孔外：纯黑遮罩（由 blind_player.gdshader 的 alpha 混合实现，不再用亮度透出自发光）
 const VISION_RADIUS_MAX: float = 0.22
@@ -96,7 +94,9 @@ func _ready() -> void:
 	collision_mask = 1
 	floor_stop_on_slope = true
 	floor_max_angle = deg_to_rad(50.0)
-	max_slides = 6
+	max_slides = 4
+	floor_snap_length = 0.12
+	safe_margin = 0.04
 	_configure_vision_mask()
 	_capture_locked_camera_pitch()
 	_lock_blind_camera_pitch()
@@ -502,19 +502,13 @@ func _apply_vision_radius_from_display() -> void:
 
 
 func _try_interact() -> void:
-	var space := get_world_3d().direct_space_state
-	var from := camera.global_position if camera else global_position + Vector3(0, 1.6, 0)
-	var flat_fwd := _get_blind_flat_forward()
-	if flat_fwd == Vector3.ZERO:
-		return
-	var to := from + flat_fwd * INTERACT_RANGE
-	var params := PhysicsRayQueryParameters3D.create(from, to, INTERACT_RAY_MASK)
-	var hit := space.intersect_ray(params)
+	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_BLIND, true)
 	if hit.is_empty():
 		return
-	var collider = hit["collider"]
-	if collider != null and collider.has_method("interact"):
-		collider.interact(GameManager.ROLE_BLIND, from, true)
+	var target: Node = hit.target
+	var from: Vector3 = hit.origin
+	if target.has_method("interact"):
+		target.interact(GameManager.ROLE_BLIND, from, true)
 
 
 func _on_over(won: bool) -> void:

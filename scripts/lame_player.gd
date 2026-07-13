@@ -17,8 +17,6 @@ extends CharacterBody3D
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
 ## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
-const INTERACT_RAY_MASK: int = 8
-const INTERACT_RANGE: float = 5.0
 const PAIN_LERP_SPEED: float = 10.0
 
 var is_local: bool = false
@@ -238,16 +236,13 @@ func _apply_pain_overlay_from_display() -> void:
 
 # 交互尝试函数
 func _try_interact() -> void:
-	var space := get_world_3d().direct_space_state
-	var from := camera.global_position
-	var to := from - camera.global_transform.basis.z * INTERACT_RANGE
-	var params := PhysicsRayQueryParameters3D.create(from, to, INTERACT_RAY_MASK)
-	var hit := space.intersect_ray(params)
+	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_LAME, false)
 	if hit.is_empty():
 		return
-	var collider = hit["collider"]
-	if collider != null and collider.has_method("interact"):
-		collider.interact(GameManager.ROLE_LAME, from, true)
+	var target: Node = hit.target
+	var from: Vector3 = hit.origin
+	if target.has_method("interact"):
+		target.interact(GameManager.ROLE_LAME, from, true)
 
 
 func _on_over(won: bool) -> void:

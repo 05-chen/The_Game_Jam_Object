@@ -42,7 +42,7 @@ func _ready() -> void:
 	_level_flow = GameLevelFlow.new()
 	_level_flow.name = "LevelFlow"
 	add_child(_level_flow)
-	_level_flow.setup(self, level_scene, false)
+	_level_flow.setup(self, level_scene)
 	_level_flow.build_initial_room()
 	await get_tree().process_frame
 	await _init_players_from_spawn_point()
@@ -269,8 +269,9 @@ func _setup_pause_input_relay() -> void:
 	_pause_input_relay = Node.new()
 	_pause_input_relay.name = "PauseInputRelay"
 	_pause_input_relay.process_mode = Node.PROCESS_MODE_ALWAYS
+	_pause_input_relay.set_script(load("res://scripts/pause_input_relay.gd"))
+	_pause_input_relay.callback = _poll_pause_input
 	add_child(_pause_input_relay)
-	_pause_input_relay.process.connect(_poll_pause_input)
 
 
 func _poll_pause_input() -> void:
