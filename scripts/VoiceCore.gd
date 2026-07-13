@@ -56,7 +56,7 @@ func _ready() -> void:
 		set_process(false)
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	GameManager.pain_value_changed.connect(_on_global_pain_for_voice)
+	GameManager.lame_voice_tier_changed.connect(_on_lame_voice_tier_changed)
 	call_deferred("_setup_voice")
 
 func _setup_voice() -> void:
@@ -73,34 +73,63 @@ func _setup_voice() -> void:
 	_voice_setup_attempts = 0
 	_setup_sample_rate()
 	_setup_remote_audio_player()
-	_on_global_pain_for_voice(GameManager.pain_value)
+	_sync_voice_tier_from_manager()
 
 
-## 双向语音：双方均可发麦；疼痛阶梯仍只约束「瘸子发麦 + 瞎子听瘸子音量」
-func _on_global_pain_for_voice(pain: float) -> void:
+## 根据 GameManager 当前阶梯，应用本端发麦/听麦策略
+func _sync_voice_tier_from_manager() -> void:
+	_voice_tier_lame_local = -999
+	_voice_tier_blind_remote = -999
+	_on_lame_voice_tier_changed(GameManager.lame_voice_tier, GameManager.pain_value)
+
+
+## 双向语音：瘸子端管发麦 + 广播 Tier；瞎子端根据远端 Tier 衰减播放音量
+func _on_lame_voice_tier_changed(tier: int, pain: float) -> void:
 	if not _runtime_enabled:
 		return
-	var tier := GameManager.pain_to_voice_tier(pain)
-	if NetworkManager.is_multiplayer_game:
-		match GameManager.current_role:
-			GameManager.ROLE_LAME:
-				if tier == _voice_tier_lame_local:
-					return
-				_voice_tier_lame_local = tier
-				set_local_pain_voice_policy(pain)
-				set_voice_transmit_enabled(tier != 0)
-				# 瘸子听瞎子：不受疼痛阶梯影响，保持清晰
-				_remote_target_db = 0.0
-			GameManager.ROLE_BLIND:
-				if tier == _voice_tier_blind_remote:
-					return
-				_voice_tier_blind_remote = tier
-				set_remote_voice_tier(tier)
-				is_disabled_by_pain = false
-				set_voice_transmit_enabled(true)
-	else:
-		# [已禁用单机] 非联机对局时不配置语音阶梯
-		pass
+	if not NetworkManager.is_multiplayer_game:
+		return
+	match GameManager.current_role:
+		GameManager.ROLE_LAME:
+			if tier == _voice_tier_lame_local:
+				return
+			_voice_tier_lame_local = tier
+			_apply_local_lame_voice_tier(tier)
+			_rpc_lame_voice_tier.rpc(tier, pain)
+		GameManager.ROLE_BLIND:
+			if tier == _voice_tier_blind_remote:
+				return
+			_voice_tier_blind_remote = tier
+			_apply_blind_remote_lame_tier(tier)
+
+
+func _apply_local_lame_voice_tier(tier: int) -> void:
+	is_disabled_by_pain = tier == 0
+	set_voice_transmit_enabled(tier != 0)
+	_remote_target_db = 0.0
+	if tier == 0 and _is_recording:
+		_set_recording(false)
+
+
+func _apply_blind_remote_lame_tier(tier: int) -> void:
+	is_disabled_by_pain = false
+	set_voice_transmit_enabled(true)
+	set_remote_voice_tier(tier)
+	if tier == 0:
+		_remote_smoothed_db = GameManager.voice_tier_to_volume_db(0)
+		if _remote_player:
+			_remote_player.volume_db = _remote_smoothed_db
+
+
+## 联机：瘸子权威端广播语音 Tier（不可靠，与 P2P 语音通道分离）
+@rpc("any_peer", "unreliable", "call_remote")
+func _rpc_lame_voice_tier(tier: int, pain: float) -> void:
+	if not NetworkManager.is_multiplayer_game:
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NetworkManager.is_trusted_sender(sender_id):
+		return
+	GameManager.apply_lame_voice_tier_from_network(tier, pain)
 
 func _process(_delta: float) -> void:
 	if not _runtime_enabled:
@@ -216,7 +245,7 @@ func resume_voice(reason: String = "") -> void:
 	_ensure_remote_playback_ready()
 	if _remote_player:
 		_remote_player.volume_db = _remote_smoothed_db
-	_on_global_pain_for_voice(GameManager.pain_value)
+	_sync_voice_tier_from_manager()
 
 func startup_voice(_reason: String = "") -> void:
 	if _runtime_enabled and not _voice_soft_paused:
@@ -234,7 +263,7 @@ func startup_voice(_reason: String = "") -> void:
 	_ensure_remote_playback_ready()
 	if _remote_player:
 		_remote_player.volume_db = 0.0
-	_on_global_pain_for_voice(GameManager.pain_value)
+	_sync_voice_tier_from_manager()
 
 func _ensure_remote_playback_ready() -> void:
 	if _remote_player == null:

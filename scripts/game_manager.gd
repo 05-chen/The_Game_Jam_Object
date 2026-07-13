@@ -44,10 +44,13 @@ const STAT_EMIT_EPSILON: float = 0.4
 ## 网络对齐目标（表现层 lerp 向此靠拢，公式不变）
 var target_mental_health: float = 100.0
 var target_pain_value: float = 0.0
+## 瘸子语音阶梯（0=禁麦/听不见，4=满音量）；与 pain_to_voice_tier 同步
+var lame_voice_tier: int = 4
 
 # 游戏事件信号
 signal mental_health_changed(value: float)
 signal pain_value_changed(value: float)
+signal lame_voice_tier_changed(tier: int, pain: float)
 signal game_over_triggered(won: bool)
 signal puzzle_solved(total: int)
 signal stage_cleared()
@@ -77,6 +80,7 @@ func reset_game() -> void:
 	_pain_last_emitted = 0.0
 	target_mental_health = mental_health_max
 	target_pain_value = 0.0
+	lame_voice_tier = 4
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
@@ -98,6 +102,7 @@ func update_pain(delta: float) -> void:
 	target_pain_value = pain_value
 	var tier_prev := pain_to_voice_tier(prev)
 	var tier_now := pain_to_voice_tier(pain_value)
+	_refresh_lame_voice_tier(pain_value)
 	if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_prev != tier_now or pain_value >= pain_max:
 		_pain_last_emitted = pain_value
 		pain_value_changed.emit(pain_value)
@@ -114,6 +119,7 @@ func reduce_pain(amount: float) -> void:
 	pain_value = clampf(pain_value - amount, 0.0, pain_max)
 	target_pain_value = pain_value
 	_pain_last_emitted = pain_value
+	_refresh_lame_voice_tier(pain_value)
 	pain_value_changed.emit(pain_value)
 
 
@@ -131,11 +137,40 @@ func sync_pain_target_from_network(value: float) -> void:
 	var clamped := clampf(value, 0.0, pain_max)
 	pain_value = clamped
 	target_pain_value = clamped
+	_refresh_lame_voice_tier(clamped)
 	var tier_now := pain_to_voice_tier(clamped)
 	var tier_prev := pain_to_voice_tier(_pain_last_emitted)
 	if absf(clamped - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_now != tier_prev:
 		_pain_last_emitted = clamped
 		pain_value_changed.emit(clamped)
+
+
+## 联机：VoiceCore 专用轻量 RPC 入口，优先刷新语音 Tier（瞎子听瘸子音量）
+func apply_lame_voice_tier_from_network(tier: int, pain: float) -> void:
+	var t := clampi(tier, 0, 4)
+	if pain >= 0.0:
+		var clamped := clampf(pain, 0.0, pain_max)
+		pain_value = clamped
+		target_pain_value = clamped
+	var tier_changed := t != lame_voice_tier
+	if tier_changed:
+		lame_voice_tier = t
+		lame_voice_tier_changed.emit(t, pain_value)
+	if pain >= 0.0:
+		var tier_now := pain_to_voice_tier(pain_value)
+		var tier_prev := pain_to_voice_tier(_pain_last_emitted)
+		if absf(pain_value - _pain_last_emitted) >= STAT_EMIT_EPSILON or tier_now != tier_prev:
+			_pain_last_emitted = pain_value
+			if not tier_changed:
+				pain_value_changed.emit(pain_value)
+
+
+func _refresh_lame_voice_tier(pain: float) -> void:
+	var tier := pain_to_voice_tier(pain)
+	if tier == lame_voice_tier:
+		return
+	lame_voice_tier = tier
+	lame_voice_tier_changed.emit(tier, pain)
 
 # 收集药物函数
 func collect_medicine(role: int) -> void:
@@ -223,6 +258,7 @@ func apply_checkpoint_state() -> void:
 	is_game_won = false
 	mental_health_changed.emit(mental_health)
 	pain_value_changed.emit(pain_value)
+	_refresh_lame_voice_tier(pain_value)
 
 func set_paused(paused: bool) -> void:
 	is_paused = paused
