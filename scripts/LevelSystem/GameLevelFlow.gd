@@ -3,7 +3,7 @@ class_name GameLevelFlow
 
 ## 局内关卡流程（不整场景切换）：
 ##   测试关 room_builder → 实例化 house_f_1（Stage1，AirWall 阻挡 Stage2）
-##   → Stage1 通关条件达成后，由玩法脚本调用 request_unlock_stage2()
+##   → 集齐 Clue1/2/3（medicine_type=2，医院 Stage1 阶段）→ 解锁 Stage2
 ##      （拆 AirWall + 实例化 Stage2 巡逻区 + 生成鬼魂）。
 ## 由 [LevelManager] 在 GameManager.stage_cleared 时触发进入医院；RPC 挂在本节点上。
 
@@ -17,6 +17,7 @@ const AIR_WALL_NODE_NAME := &"AirWall"
 const GHOST_SPAWN_POINT_STAGE2 := &"GhostSpawnPoint_Stage2"
 const GHOST_STAGE2_NAME := &"GhostStage2"
 const GHOST_SCENE: PackedScene = preload("res://scenes/ghost.tscn")
+const STAGE1_CLUE_NAMES: Array[StringName] = [&"Clue1", &"Clue2", &"Clue3"]
 
 var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
@@ -29,6 +30,7 @@ var _air_wall_removed: bool = false
 var _stage2_ghost_spawned: bool = false
 var _stage2_content: Node3D = null
 var _stage2_unlocked: bool = false
+var _stage1_clues_collected: Dictionary = {}
 
 
 func setup(world: Node3D, main_level_scene: PackedScene) -> void:
@@ -49,6 +51,10 @@ func build_initial_room() -> void:
 
 func is_tutorial() -> bool:
 	return phase == Phase.TUTORIAL
+
+
+func is_hospital_stage1_active() -> bool:
+	return phase == Phase.MAIN and not _stage2_unlocked
 
 
 func get_level_node() -> Node3D:
@@ -95,6 +101,7 @@ func _enter_main_level() -> void:
 	phase = Phase.MAIN
 	GameManager.advance_to_main_on_puzzle_clear = false
 	GameManager.puzzles_solved = 0
+	_reset_stage1_clue_progress()
 	_load_main_level_scene()
 	await _world.get_tree().process_frame
 	var spawn_pos := resolve_spawn_position()
@@ -145,7 +152,31 @@ func _instantiate_stage2_content() -> bool:
 	return true
 
 
-## Stage1 通关后由玩法脚本（解谜 / 线索 / 检查点等）调用，无快捷键、无自动触发。
+func _reset_stage1_clue_progress() -> void:
+	_stage1_clues_collected.clear()
+
+
+## 拾取 Clue1/2/3 时由 medicine_item 调用（全网同步拾取动画后触发）
+func notify_stage1_clue_collected(clue_name: String) -> void:
+	if phase != Phase.MAIN:
+		return
+	if not STAGE1_CLUE_NAMES.has(StringName(clue_name)):
+		push_warning("[GameLevelFlow] 未知线索名: %s" % clue_name)
+		return
+	if _stage1_clues_collected.has(clue_name):
+		return
+	_stage1_clues_collected[clue_name] = true
+	var total: int = _stage1_clues_collected.size()
+	_show_stage_msg("获得线索 %s（%d/%d）" % [clue_name, total, STAGE1_CLUE_NAMES.size()])
+	print("[GameLevelFlow] Stage1 线索已收集: %s (%d/%d)" % [clue_name, total, STAGE1_CLUE_NAMES.size()])
+	if total < STAGE1_CLUE_NAMES.size():
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	request_unlock_stage2()
+
+
+## Stage1 通关后由玩法脚本调用，无快捷键、无自动触发。
 func request_unlock_stage2() -> void:
 	if phase != Phase.MAIN:
 		return

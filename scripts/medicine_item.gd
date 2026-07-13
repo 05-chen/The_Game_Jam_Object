@@ -1,4 +1,9 @@
-# 药物物品脚本 - 联机拾取：本地 mask8 + 主机距离/地形两步校验 + 拾取 Tween
+# 药物/可拾取物脚本 - 联机拾取：本地 mask8 + 主机距离/地形两步校验 + 拾取 Tween
+#
+# medicine_type 含义（在 Inspector 里设置）：
+#   0 = 镇定剂（仅瞎子）
+#   1 = 止痛药（仅瘸子）
+#   2 = 钥匙/线索（测试关集钥匙 或 医院 Stage1 的 Clue1/2/3，由当前关卡阶段自动区分）
 
 extends NetworkedAuthorityInteractable
 
@@ -92,9 +97,14 @@ func _setup_look() -> void:
 		mat.emission = Color(0.2, 1.0, 0.3)
 		lbl.text = "止疼药"
 	elif medicine_type == TYPE_KEY:
-		mat.albedo_color = Color(1.0, 0.8, 0.0)
-		mat.emission = Color(1.0, 0.8, 0.0)
-		lbl.text = "钥匙碎片"
+		if _is_hospital_stage1_clue_context():
+			mat.albedo_color = Color(0.95, 0.82, 0.25)
+			mat.emission = Color(0.9, 0.7, 0.15)
+			lbl.text = "线索"
+		else:
+			mat.albedo_color = Color(1.0, 0.8, 0.0)
+			mat.emission = Color(1.0, 0.8, 0.0)
+			lbl.text = "钥匙碎片"
 	mesh.material_override = mat
 	mesh.layers = ITEM_RENDER_LAYER
 	_idle_phase = rotation.y
@@ -180,13 +190,16 @@ func _commit_gameplay_after_fx() -> void:
 
 
 func _authority_apply_local() -> void:
-	if medicine_type == TYPE_MENTAL:
-		GameManager.collect_medicine(GameManager.ROLE_BLIND)
-	elif medicine_type == TYPE_PAIN:
-		GameManager.collect_medicine(GameManager.ROLE_LAME)
-	elif medicine_type == TYPE_KEY:
-		if GameManager.puzzle_clues_enabled:
-			GameManager.solve_puzzle()
+	match medicine_type:
+		TYPE_MENTAL:
+			GameManager.collect_medicine(GameManager.ROLE_BLIND)
+		TYPE_PAIN:
+			GameManager.collect_medicine(GameManager.ROLE_LAME)
+		TYPE_KEY:
+			if GameManager.puzzle_clues_enabled:
+				GameManager.solve_puzzle()
+			elif _is_hospital_stage1_clue_context():
+				_notify_stage1_clue_pickup()
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:
@@ -236,3 +249,16 @@ func _resolve_request_player(sender_id: int) -> Node3D:
 			return parent.get_node_or_null("LamePlayer") as Node3D
 		return parent.get_node_or_null("BlindPlayer") as Node3D
 	return null
+
+
+func _is_hospital_stage1_clue_context() -> bool:
+	if medicine_type != TYPE_KEY:
+		return false
+	var flow := get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
+	return flow != null and flow.is_hospital_stage1_active()
+
+
+func _notify_stage1_clue_pickup() -> void:
+	var flow := get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
+	if flow != null:
+		flow.notify_stage1_clue_collected(String(name))
