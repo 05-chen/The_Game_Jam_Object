@@ -165,24 +165,30 @@ medicine_type = 1
 
 [node name="MedicineItem11" parent="." index="313" unique_id=449839817 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -51.61642, 4.570978, -395.4518)
+hospital_stage = 2
 
 [node name="MedicineItem12" parent="." index="314" unique_id=518343463 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -46.44125, -0.73580503, -484.23312)
 medicine_type = 1
+hospital_stage = 2
 
 [node name="MedicineItem13" parent="." index="315" unique_id=1833666153 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -349.24475, 2.7394762, -490.30414)
 medicine_type = 1
+hospital_stage = 2
 
 [node name="MedicineItem14" parent="." index="316" unique_id=435947921 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -401.9328, -3.9418242, -238.92245)
+hospital_stage = 2
 
 [node name="MedicineItem15" parent="." index="317" unique_id=2714002 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -118.325195, 2.2736473, -140.90904)
 medicine_type = 1
+hospital_stage = 2
 
 [node name="MedicineItem16" parent="." index="318" unique_id=195759380 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -394.3768, 3.736906, -473.988)
+hospital_stage = 2
 
 [node name="Clue1" parent="." index="319" unique_id=2035597389 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 115.064316, -1.6487265, 351.59454)
@@ -198,6 +204,9 @@ medicine_type = 2
 
 [node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="322" unique_id=142590855]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
+
+[node name="PlayerSpawnPoint_Stage2" type="Marker3D" parent="." index="323" unique_id=1982736401]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 0.35, -326)
 
 [node name="GhostPatrolPath" type="Path3D" parent="GhostSpawnPoint_Stage2" index="0" unique_id=687411446]
 curve = SubResource("Curve3D_sbl5i")

@@ -2,14 +2,17 @@ extends Node
 class_name GameLevelFlow
 
 ## 局内关卡流程（不整场景切换）：
-##   测试关 room_builder → 实例化 house_f_1（Stage1，AirWall 阻挡 Stage2）
-##   → 集齐 Clue1/2/3（medicine_type=2，医院 Stage1 阶段）→ 解锁 Stage2
-##      （拆 AirWall + 实例化 Stage2 巡逻区 + 生成鬼魂）。
-## 由 [LevelManager] 在 GameManager.stage_cleared 时触发进入医院；RPC 挂在本节点上。
+##   测试关 room_builder → 实例化 house_f_1（Stage1）
+##   → 集齐 Clue1/2/3 → 黑屏转场 switch_to_stage(2)（同场景偷梁换柱，不重新实例化 GLB）
+##   → 拆 AirWall + 显示 stage2_only 分组 + 生成鬼魂。
 
 enum Phase { TUTORIAL, MAIN }
 
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
+const STAGE2_SPAWN_POINT_NAME := &"PlayerSpawnPoint_Stage2"
+const GROUP_STAGE1_ONLY := &"stage1_only"
+const GROUP_STAGE2_ONLY := &"stage2_only"
+const STAGE_TRANSITION_FADE_SEC := 0.65
 const MAIN_LEVEL_SCENE_PATH := "res://scenes/house_f_1.tscn"
 const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
 const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
@@ -31,8 +34,8 @@ var _level_node: Node3D = null
 var _entering_main_level: bool = false
 var _air_wall_removed: bool = false
 var _stage2_ghost_spawned: bool = false
-var _stage2_content: Node3D = null
-var _stage2_unlocked: bool = false
+var _current_hospital_stage: int = 1
+var _stage_transition_in_progress: bool = false
 var _stage1_clues_collected: Dictionary = {}
 
 
@@ -58,7 +61,11 @@ func is_tutorial() -> bool:
 
 
 func is_hospital_stage1_active() -> bool:
-	return phase == Phase.MAIN and not _stage2_unlocked
+	return phase == Phase.MAIN and _current_hospital_stage == 1
+
+
+func get_current_hospital_stage() -> int:
+	return _current_hospital_stage
 
 
 func get_level_node() -> Node3D:
@@ -168,33 +175,79 @@ func _load_main_level_scene() -> void:
 	level.name = "Level"
 	_world.add_child(level)
 	_level_node = level
-	call_deferred("_strip_stage2_content_from_level")
+	call_deferred("_on_hospital_level_ready")
 
 
-func _strip_stage2_content_from_level() -> void:
+func _on_hospital_level_ready() -> void:
 	if _level_node == null or not is_instance_valid(_level_node):
 		return
-	if _stage2_content != null and is_instance_valid(_stage2_content):
-		return
-	var spawn_root := _level_node.find_child(GHOST_SPAWN_POINT_STAGE2, true, false) as Node3D
-	if spawn_root == null:
-		return
-	_stage2_content = spawn_root
-	_level_node.remove_child(_stage2_content)
-	print("[GameLevelFlow] Stage2 内容已从场景剥离，待 Stage1 通关后实例化")
+	_ensure_builtin_stage_groups()
+	switch_to_stage(1)
 
 
-func _instantiate_stage2_content() -> bool:
-	if _stage2_unlocked:
-		return _stage2_content != null and is_instance_valid(_stage2_content)
-	if _stage2_content == null or not is_instance_valid(_stage2_content):
-		push_warning("[GameLevelFlow] 无 Stage2 内容可实例化（%s）" % GHOST_SPAWN_POINT_STAGE2)
-		return false
-	if _stage2_content.get_parent() == null:
-		_level_node.add_child(_stage2_content)
-	_stage2_unlocked = true
-	print("[GameLevelFlow] Stage2 巡逻路线已实例化")
-	return true
+func _ensure_builtin_stage_groups() -> void:
+	var ghost_spawn := _level_node.find_child(GHOST_SPAWN_POINT_STAGE2, true, false)
+	if ghost_spawn != null and not ghost_spawn.is_in_group(GROUP_STAGE2_ONLY):
+		ghost_spawn.add_to_group(GROUP_STAGE2_ONLY)
+
+
+## 集中切换医院 Stage1 / Stage2 分组显隐与交互（不重新实例化大场景）
+func switch_to_stage(stage_num: int) -> void:
+	var stage := clampi(stage_num, 1, 2)
+	_current_hospital_stage = stage
+	match stage:
+		1:
+			_set_group_interaction(GROUP_STAGE1_ONLY, true)
+			_set_group_interaction(GROUP_STAGE2_ONLY, false)
+		2:
+			_set_group_interaction(GROUP_STAGE1_ONLY, false)
+			_set_group_interaction(GROUP_STAGE2_ONLY, true)
+	_refresh_level_medicine_respawn_pool()
+	print("[GameLevelFlow] 已切换至医院 Stage%d" % stage)
+
+
+func _set_group_interaction(group_name: StringName, active: bool) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	for node in tree.get_nodes_in_group(group_name):
+		if node == null or not is_instance_valid(node):
+			continue
+		if node.has_method("set_stage_interaction_active"):
+			node.call("set_stage_interaction_active", active)
+		else:
+			_set_generic_node_interaction(node, active)
+
+
+func _set_generic_node_interaction(node: Node, active: bool) -> void:
+	if node is CanvasItem:
+		(node as CanvasItem).visible = active
+	if node is Node3D:
+		(node as Node3D).visible = active
+	node.set_process(active)
+	node.set_physics_process(active)
+	if node is CollisionObject3D:
+		var body := node as CollisionObject3D
+		if active:
+			body.collision_layer = body.collision_layer if body.collision_layer != 0 else 1
+		else:
+			body.collision_layer = 0
+			body.collision_mask = 0
+	_apply_collision_shapes_recursive(node, active)
+
+
+func _apply_collision_shapes_recursive(node: Node, active: bool) -> void:
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).set_deferred("disabled", not active)
+		_apply_collision_shapes_recursive(child, active)
+
+
+func _refresh_level_medicine_respawn_pool() -> void:
+	if _level_node == null or not is_instance_valid(_level_node):
+		return
+	if _level_node.has_method("refresh_medicine_respawn_pool"):
+		_level_node.call("refresh_medicine_respawn_pool")
 
 
 func _reset_stage1_clue_progress() -> void:
@@ -225,7 +278,9 @@ func notify_stage1_clue_collected(clue_name: String) -> void:
 func request_unlock_stage2() -> void:
 	if phase != Phase.MAIN:
 		return
-	if _stage2_unlocked and _air_wall_removed and _stage2_ghost_spawned:
+	if _current_hospital_stage >= 2:
+		return
+	if _stage_transition_in_progress:
 		return
 	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
 		return
@@ -236,13 +291,36 @@ func request_unlock_stage2() -> void:
 func _rpc_unlock_stage2() -> void:
 	if phase != Phase.MAIN:
 		return
-	var was_locked := not _stage2_unlocked
-	_remove_air_wall_local()
-	if not _instantiate_stage2_content():
+	if _current_hospital_stage >= 2 or _stage_transition_in_progress:
 		return
+	_perform_stage2_transition()
+
+
+func _perform_stage2_transition() -> void:
+	_stage_transition_in_progress = true
+	await _world.level_flow_fade_out(STAGE_TRANSITION_FADE_SEC)
+	_remove_air_wall_local()
+	switch_to_stage(2)
 	_spawn_stage2_ghost_local()
-	if was_locked and _stage2_unlocked:
-		_show_stage_msg("第一阶段完成，危险区域已开放...")
+	var spawn_pos := resolve_stage2_spawn_position()
+	_reposition_players(spawn_pos)
+	if _world.has_method("level_flow_save_checkpoint"):
+		_world.level_flow_save_checkpoint()
+	await _world.level_flow_fade_in(STAGE_TRANSITION_FADE_SEC)
+	_stage_transition_in_progress = false
+	_show_stage_msg("第一阶段完成，危险区域已开放...")
+
+
+func resolve_stage2_spawn_position() -> Vector3:
+	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else _world
+	var marker := search_root.find_child(STAGE2_SPAWN_POINT_NAME, true, false) as Node3D
+	if marker:
+		return marker.global_position
+	marker = search_root.find_child(GHOST_SPAWN_POINT_STAGE2, true, false) as Node3D
+	if marker:
+		return marker.global_position
+	push_warning("[GameLevelFlow] 未找到 Stage2 出生点，保持玩家原位")
+	return resolve_spawn_position()
 
 
 func _find_stage2_ghost() -> CharacterBody3D:

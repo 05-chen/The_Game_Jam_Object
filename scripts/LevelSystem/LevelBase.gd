@@ -115,9 +115,20 @@ func _on_medicine_collected(_role: int) -> void:
 func _find_level_medicines() -> Array[Node]:
 	var result: Array[Node] = []
 	for node in find_children("*", "StaticBody3D", true, false):
-		if node.has_method("is_respawnable_medicine") and node.call("is_respawnable_medicine"):
-			result.append(node)
+		if not node.has_method("is_respawnable_medicine") or not node.call("is_respawnable_medicine"):
+			continue
+		if node.has_method("is_stage_interaction_enabled") and not node.call("is_stage_interaction_enabled"):
+			continue
+		result.append(node)
 	return result
+
+
+## GameLevelFlow 切换 Stage 后刷新：只统计当前阶段可刷新的药品
+func refresh_medicine_respawn_pool() -> void:
+	if not enable_medicine_respawn:
+		return
+	_medicines = _find_level_medicines()
+	_medicine_respawn_pending = false
 
 
 func _all_level_medicines_collected() -> bool:

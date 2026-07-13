@@ -12,6 +12,16 @@ const TYPE_PAIN := 1
 const TYPE_KEY := 2
 const ITEM_RENDER_LAYER := 8
 
+## 医院大场景：该药品/线索属于哪一阶段（Inspector 下拉选择）
+enum HospitalStage {
+	STAGE_1 = 1,
+	STAGE_2 = 2,
+}
+
+@export_group("关卡阶段")
+## 第一阶段专用 / 第二阶段专用；进入对应阶段后由 GameLevelFlow 统一显隐
+@export var hospital_stage: HospitalStage = HospitalStage.STAGE_1
+
 @export var medicine_type: int = 0
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
@@ -29,6 +39,8 @@ var _idle_phase: float = 0.0
 var _spawn_position: Vector3 = Vector3.ZERO
 var _initial_mesh_scale: Vector3 = Vector3.ONE
 var _pickup_tween: Tween = null
+var _stage_interaction_enabled: bool = true
+var _saved_collision_layer: int = 8
 
 @onready var mesh: MeshInstance3D = $Mesh
 @onready var col: CollisionShape3D = $Col
@@ -36,7 +48,7 @@ var _pickup_tween: Tween = null
 
 
 func is_interact_exhausted() -> bool:
-	return is_collected or _pickup_animating
+	return not _stage_interaction_enabled or is_collected or _pickup_animating
 
 
 func interact(role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_from: bool = false) -> void:
@@ -48,13 +60,65 @@ func interact(role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_fro
 
 
 func _ready() -> void:
-	add_to_group("interactable_pickup")
+	_register_hospital_stage_group()
 	_spawn_position = position
 	initial_y = position.y
 	if mesh:
 		_initial_mesh_scale = mesh.scale
-	collision_layer = 8
+	_saved_collision_layer = 8
+	collision_layer = _saved_collision_layer
 	_setup_look()
+	add_to_group("interactable_pickup")
+	# Stage2 药品默认先隐藏，等 GameLevelFlow.switch_to_stage(1) 统一刷新
+	if hospital_stage == HospitalStage.STAGE_2:
+		set_stage_interaction_active(false)
+
+
+## 由 GameLevelFlow._set_group_interaction 调用：彻底开关显隐、帧更新与碰撞
+func set_stage_interaction_active(active: bool) -> void:
+	_stage_interaction_enabled = active
+	visible = active
+	set_process(active)
+	set_physics_process(active)
+	if active and not is_collected:
+		if not is_in_group("interactable_pickup"):
+			add_to_group("interactable_pickup")
+		collision_layer = _saved_collision_layer
+		_set_all_collision_shapes_enabled(true)
+	else:
+		if is_in_group("interactable_pickup"):
+			remove_from_group("interactable_pickup")
+		collision_layer = 0
+		_set_all_collision_shapes_enabled(false)
+
+
+func is_stage_interaction_enabled() -> bool:
+	return _stage_interaction_enabled
+
+
+func get_hospital_stage() -> int:
+	return int(hospital_stage)
+
+
+func _register_hospital_stage_group() -> void:
+	match hospital_stage:
+		HospitalStage.STAGE_1:
+			if not is_in_group("stage1_only"):
+				add_to_group("stage1_only")
+		HospitalStage.STAGE_2:
+			if not is_in_group("stage2_only"):
+				add_to_group("stage2_only")
+
+
+func _set_all_collision_shapes_enabled(enabled: bool) -> void:
+	_apply_collision_shapes_recursive(self, enabled)
+
+
+func _apply_collision_shapes_recursive(node: Node, enabled: bool) -> void:
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).set_deferred("disabled", not enabled)
+		_apply_collision_shapes_recursive(child, enabled)
 
 
 func is_fully_collected() -> bool:
@@ -66,6 +130,8 @@ func is_respawnable_medicine() -> bool:
 
 
 func reset_for_respawn() -> void:
+	if not _stage_interaction_enabled:
+		return
 	if _pickup_tween != null and is_instance_valid(_pickup_tween):
 		_pickup_tween.kill()
 		_pickup_tween = null
@@ -121,7 +187,7 @@ func _process(delta: float) -> void:
 
 
 func can_role_pickup(role: int) -> bool:
-	return _can_role_collect(role)
+	return _stage_interaction_enabled and _can_role_collect(role)
 
 
 func get_pickup_focus_position() -> Vector3:
@@ -141,6 +207,8 @@ func _can_role_collect(role: int) -> bool:
 
 
 func _authority_validate_host(sender_id: int, role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_from: bool = false) -> bool:
+	if not _stage_interaction_enabled:
+		return false
 	if not _can_role_collect(role):
 		return false
 	var request_player := _resolve_request_player(sender_id)

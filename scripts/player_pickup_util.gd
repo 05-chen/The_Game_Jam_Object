@@ -103,6 +103,8 @@ static func find_best_pickup_target(
 			continue
 		if node.has_method("is_interact_exhausted") and node.call("is_interact_exhausted"):
 			continue
+		if node.has_method("is_stage_interaction_enabled") and not node.call("is_stage_interaction_enabled"):
+			continue
 		var target_pos: Vector3 = node.global_position
 		if node.has_method("get_pickup_focus_position"):
 			target_pos = node.call("get_pickup_focus_position")
