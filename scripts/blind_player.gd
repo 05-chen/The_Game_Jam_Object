@@ -24,6 +24,8 @@ extends CharacterBody3D
 @export var pickup_show_debug: bool = false
 ## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）
 @export var lock_camera_pitch: bool = true
+## 大场景性能：默认关闭 SpotLight 实时阴影（Forward+ 下开销很高）
+@export var spot_light_shadow_enabled: bool = false
 @export var visual_smooth: float = 18.0
 ## 联机：位移“够大才算动”的宽松阈值（米），与旋转阈值分离，避免小碎步抢带宽
 @export var sync_move_pos_epsilon_m: float = 0.05
@@ -489,7 +491,7 @@ func _setup_spot_light() -> void:
 	spot_light.spot_range = 12.0
 	spot_light.spot_angle = 45.0
 	spot_light.spot_attenuation = 0.6
-	spot_light.shadow_enabled = true
+	spot_light.shadow_enabled = spot_light_shadow_enabled
 	camera.add_child(spot_light)
 	var camera_env := Environment.new()
 	camera_env.background_mode = Environment.BG_COLOR

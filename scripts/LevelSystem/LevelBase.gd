@@ -37,6 +37,16 @@ const GROUP_PATROL := "lvl_patrol"
 ## 网格 AABB 最大边长低于此值（米）时跳过，避免给小装饰物加碰撞
 @export var mesh_collision_min_extent: float = 0.35
 
+@export_group("碰撞优化")
+## 大场景：剔除过小装饰物的三角网格碰撞，显著减轻 move_and_slide 开销（墙体命名会保留）
+@export var optimize_decor_collision: bool = true
+## 世界空间 AABB 最大边长低于此值（米）的 concave 碰撞会被移除
+@export var decor_collision_min_world_extent: float = 1.5
+@export var decor_collision_name_keep: PackedStringArray = [
+	"wall", "Wall", "floor", "Floor", "ground", "Ground",
+	"ceiling", "Ceiling", "door", "Door", "stairs", "Stairs", "AirWall",
+]
+
 @export_group("药品刷新")
 ## 大场景：本关 Type 0/1 药品全部拾取后，等待若干秒在原位重新刷新（不含 Type 2 通关线索）。
 @export var enable_medicine_respawn: bool = false
@@ -50,11 +60,11 @@ var _medicine_respawn_signal_connected: bool = false
 
 func _ready() -> void:
 	LevelManager.hide_mask()
-	_post_configure_imported_scene()
+	call_deferred("_post_configure_imported_scene")
 	if enable_medicine_respawn:
-		_setup_medicine_respawn()
+		call_deferred("_setup_medicine_respawn")
 	if _scene_has_navigation_region():
-		_init_navigation_ai()
+		call_deferred("_init_navigation_ai")
 
 
 func _exit_tree() -> void:
@@ -147,6 +157,70 @@ func _post_configure_imported_scene() -> void:
 		_generate_trimesh_collisions_from_meshes()
 	if auto_static_body_collision_layer != 0 or auto_static_body_collision_mask != 0 or static_body_extra_group.strip_edges() != "":
 		_apply_static_body_physics_and_groups(self)
+	if optimize_decor_collision:
+		_optimize_decorative_collisions()
+
+
+func _optimize_decorative_collisions() -> void:
+	var removed_shapes := 0
+	var disabled_bodies := 0
+	for body in find_children("*", "StaticBody3D", true, false):
+		if not body is StaticBody3D:
+			continue
+		if _body_name_should_keep_collision(String(body.name)):
+			continue
+		var world_ext := _static_body_world_extent(body as StaticBody3D)
+		if world_ext <= 0.0 or world_ext >= decor_collision_min_world_extent:
+			continue
+		var removed_on_body := 0
+		for cs in body.get_children():
+			if not cs is CollisionShape3D:
+				continue
+			var col := cs as CollisionShape3D
+			if col.shape is ConcavePolygonShape3D:
+				col.queue_free()
+				removed_shapes += 1
+				removed_on_body += 1
+		if removed_on_body > 0:
+			var remaining := 0
+			for cs in body.get_children():
+				if cs is CollisionShape3D and (cs as CollisionShape3D).shape != null:
+					remaining += 1
+			if remaining == 0:
+				body.collision_layer = 0
+				body.collision_mask = 0
+				disabled_bodies += 1
+	if removed_shapes > 0:
+		print("[LevelBase] 已剔除装饰 concave 碰撞 %d 个（禁用空碰撞体 %d 个）" % [
+			removed_shapes, disabled_bodies
+		])
+
+
+func _body_name_should_keep_collision(node_name: String) -> bool:
+	for keep in decor_collision_name_keep:
+		var key := String(keep)
+		if key != "" and node_name.contains(key):
+			return true
+	return false
+
+
+func _static_body_world_extent(body: StaticBody3D) -> float:
+	var max_ext := 0.0
+	for child in body.get_children():
+		if not child is MeshInstance3D:
+			continue
+		var mi := child as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var aabb := mi.mesh.get_aabb()
+		var basis_scale := (body.global_transform.basis * mi.transform.basis).get_scale().abs()
+		var scaled := Vector3(
+			aabb.size.x * basis_scale.x,
+			aabb.size.y * basis_scale.y,
+			aabb.size.z * basis_scale.z
+		)
+		max_ext = maxf(max_ext, maxf(scaled.x, maxf(scaled.y, scaled.z)))
+	return max_ext
 
 
 func _register_spawn_patrol_groups_by_name(node: Node) -> void:

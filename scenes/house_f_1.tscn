@@ -24,19 +24,18 @@ point_count = 99
 transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.05, 0, 0, 0)
 script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
-generate_mesh_trimesh_collision = true
 enable_medicine_respawn = true
 
-[node name="2_138" parent="." index="67" unique_id=1930288330]
+[node name="2_138" parent="." index="67" unique_id=2049580573]
 transform = Transform3D(0.0877651, 4.195837e-06, -0.027302744, 4.9336425e-13, 0.09040997, 2.197822e-05, 0.021708224, -1.6963528e-05, 0.110383414, -343.48566, -5.4989166, 644.97705)
 
-[node name="Cube_0025" parent="." index="139" unique_id=374725566]
+[node name="Cube_0025" parent="." index="139" unique_id=1742407806]
 visible = false
 
-[node name="Cube1" parent="." index="198" unique_id=78845804]
+[node name="Cube1" parent="." index="198" unique_id=163214652]
 visible = false
 
-[node name="Cube32" parent="." index="276" unique_id=1742268472]
+[node name="Cube32" parent="." index="276" unique_id=1687463905]
 transform = Transform3D(2.9040992, 0, 0, 0, 2.9040992, 0, 0, 0, 2.9040992, -326.7647, -5.773487, -768.2284)
 
 [node name="PlayerSpawnPoint" type="Marker3D" parent="." index="286" unique_id=2009377943]

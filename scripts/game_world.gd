@@ -10,8 +10,8 @@ extends Node3D
 
 ## ── 编辑器绑定（选中 GameWorld 根节点后在 Inspector 里拖入）──
 @export_group("关卡")
-## 美术大场景（通关测试关后进入）
-@export var level_scene: PackedScene = preload("res://scenes/house_f_1.tscn")
+## 美术大场景路径（测试关期间后台预加载，通关后再实例化）
+@export_file("*.tscn") var main_level_scene_path: String = "res://scenes/house_f_1.tscn"
 
 @export_group("玩家 Prefab")
 @export var blind_player_scene: PackedScene = preload("res://scenes/blind_player.tscn")
@@ -42,7 +42,7 @@ func _ready() -> void:
 	_level_flow = GameLevelFlow.new()
 	_level_flow.name = "LevelFlow"
 	add_child(_level_flow)
-	_level_flow.setup(self, level_scene)
+	_level_flow.setup(self, main_level_scene_path)
 	_level_flow.build_initial_room()
 	await get_tree().process_frame
 	await _init_players_from_spawn_point()

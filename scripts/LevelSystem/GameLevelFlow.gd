@@ -10,6 +10,7 @@ class_name GameLevelFlow
 enum Phase { TUTORIAL, MAIN }
 
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
+const MAIN_LEVEL_SCENE_PATH := "res://scenes/house_f_1.tscn"
 const TUTORIAL_BLIND_SPAWN := Vector3(0, 1, 0)
 const TUTORIAL_LAME_SPAWN := Vector3(2, 1, 0)
 const DEFAULT_SPAWN := Vector3(0, 1, 0)
@@ -23,6 +24,8 @@ var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
 
 var _world: Node3D
+var _level_scene_path: String = ""
+var _level_preload_started: bool = false
 var _room_node: Node3D = null
 var _level_node: Node3D = null
 var _entering_main_level: bool = false
@@ -33,11 +36,12 @@ var _stage2_unlocked: bool = false
 var _stage1_clues_collected: Dictionary = {}
 
 
-func setup(world: Node3D, main_level_scene: PackedScene) -> void:
+func setup(world: Node3D, main_level_path: String = MAIN_LEVEL_SCENE_PATH) -> void:
 	_world = world
-	level_scene = main_level_scene
+	_level_scene_path = main_level_path if main_level_path != "" else MAIN_LEVEL_SCENE_PATH
 	add_to_group("game_level_flow")
 	LevelManager.register_in_scene_flow(self)
+	_begin_background_level_preload()
 
 
 func build_initial_room() -> void:
@@ -103,7 +107,8 @@ func _enter_main_level() -> void:
 	GameManager.puzzle_clues_enabled = false
 	GameManager.puzzles_solved = 0
 	_reset_stage1_clue_progress()
-	_load_main_level_scene()
+	_show_stage_msg("正在加载医院场景，请稍候...")
+	await _load_main_level_scene()
 	await _world.get_tree().process_frame
 	var spawn_pos := resolve_spawn_position()
 	_reposition_players(spawn_pos)
@@ -114,13 +119,52 @@ func _enter_main_level() -> void:
 	_show_stage_msg("测试关完成，进入医院...")
 
 
+func _begin_background_level_preload() -> void:
+	if _level_scene_path == "" or _level_preload_started:
+		return
+	_level_preload_started = true
+	if ResourceLoader.has_cached(_level_scene_path):
+		level_scene = ResourceLoader.load(_level_scene_path) as PackedScene
+		return
+	var err := ResourceLoader.load_threaded_request(_level_scene_path)
+	if err != OK:
+		push_warning("[GameLevelFlow] 后台预加载失败 path=%s err=%s" % [_level_scene_path, str(err)])
+
+
+func _await_level_scene_packed() -> PackedScene:
+	if level_scene != null:
+		return level_scene
+	if _level_scene_path == "":
+		push_error("[GameLevelFlow] 未配置医院场景路径")
+		return null
+	if not _level_preload_started:
+		_begin_background_level_preload()
+	while true:
+		var status := ResourceLoader.load_threaded_get_status(_level_scene_path)
+		match status:
+			ResourceLoader.THREAD_LOAD_LOADED:
+				level_scene = ResourceLoader.load_threaded_get(_level_scene_path) as PackedScene
+				return level_scene
+			ResourceLoader.THREAD_LOAD_FAILED, ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+				push_error("[GameLevelFlow] 线程加载医院场景失败，尝试同步加载")
+				level_scene = load(_level_scene_path) as PackedScene
+				return level_scene
+			ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				await _world.get_tree().process_frame
+			_:
+				level_scene = load(_level_scene_path) as PackedScene
+				return level_scene
+	return null
+
+
 func _load_main_level_scene() -> void:
 	if _level_node != null and is_instance_valid(_level_node):
 		return
-	if level_scene == null:
+	var packed := await _await_level_scene_packed()
+	if packed == null:
 		push_error("[GameLevelFlow] level_scene 未绑定")
 		return
-	var level := level_scene.instantiate()
+	var level := packed.instantiate()
 	level.name = "Level"
 	_world.add_child(level)
 	_level_node = level
