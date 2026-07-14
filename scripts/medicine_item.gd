@@ -29,7 +29,7 @@ enum HospitalStage {
 @export_flags_3d_physics var environment_mask: int = 1
 ## 仅检测物品层（layer 4 = bit 8）；嵌墙时不影响拾取判定
 @export_flags_3d_physics var item_pickup_mask: int = 8
-@export var client_probe_slack_m: float = 1.5
+@export var client_probe_slack_m: float = 2.2
 ## 视线检测：射线打在台面/地面时，落点距道具中心在此范围内仍视为可拾取（软校验备用）
 @export var pickup_los_surface_slack_m: float = 3.5
 ## false=忽略环境遮挡（推荐）；true=仍做软 LOS（台面容差）
@@ -231,14 +231,20 @@ func _can_role_collect(role: int) -> bool:
 
 
 func _authority_validate_host(sender_id: int, role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_from: bool = false) -> bool:
-	if not _stage_interaction_enabled:
-		return false
+	return _authority_reject_reason(sender_id, role, interact_from, has_interact_from) == RejectReason.NONE
+
+
+func _authority_reject_reason(sender_id: int, role: int, interact_from: Vector3 = Vector3.ZERO, has_interact_from: bool = false) -> int:
+	if not _stage_interaction_enabled or is_collected or _pickup_animating:
+		return RejectReason.EXHAUSTED
 	if not _can_role_collect(role):
-		return false
+		return RejectReason.ROLE
 	var request_player := _resolve_request_player(sender_id)
 	if request_player == null:
-		return false
-	return _is_collect_request_legal(request_player, interact_from, has_interact_from)
+		return RejectReason.PLAYER
+	if not _is_collect_request_legal(request_player, interact_from, has_interact_from):
+		return RejectReason.RANGE
+	return RejectReason.NONE
 
 
 func _resolve_collector_pos(sender_id: int, interact_from: Vector3, has_interact_from: bool) -> Vector3:

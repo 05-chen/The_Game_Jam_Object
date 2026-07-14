@@ -115,21 +115,35 @@ func _enter_main_level() -> void:
 	await _world.level_flow_fade_out(0.4)
 	_clear_tutorial_content()
 	phase = Phase.MAIN
+	# 测试关进度不带入医院：精神/疼痛/药计数/线索字典全部清零
+	GameManager.reset_for_entering_main_level()
 	GameManager.advance_to_main_on_puzzle_clear = false
 	GameManager.puzzle_clues_enabled = false
-	GameManager.puzzles_solved = 0
 	_reset_stage1_clue_progress()
+	_air_wall_removed = false
+	_stage2_ghost_spawned = false
+	_stage_transition_in_progress = false
 	_show_stage_msg("正在加载医院场景，请稍候...")
 	await _load_main_level_scene()
 	await _world.get_tree().process_frame
 	var spawn_pos := resolve_spawn_position()
 	_reposition_players(spawn_pos)
+	_sync_player_displays_after_reset()
 	if _world.has_method("level_flow_save_checkpoint"):
 		_world.level_flow_save_checkpoint()
 	await _world.level_flow_fade_in(0.4)
 	_entering_main_level = false
 	_refresh_blind_lights_after_level_load()
-	_show_stage_msg("测试关完成，进入医院...")
+	_show_stage_msg("进入医院：状态与拾取进度已重置")
+
+
+func _sync_player_displays_after_reset() -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
+	for player_name in ["BlindPlayer", "LamePlayer"]:
+		var player := _world.get_node_or_null(player_name)
+		if player != null and is_instance_valid(player) and player.has_method("sync_vitals_display_from_manager"):
+			player.call("sync_vitals_display_from_manager")
 
 
 func _refresh_blind_lights_after_level_load() -> void:

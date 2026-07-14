@@ -107,6 +107,30 @@ func reset_game() -> void:
 	reset_game_session()
 
 
+## 测试关 → 医院 Stage1：清空体感与拾取进度（保留玩家节点引用与联机会话）
+func reset_for_entering_main_level() -> void:
+	mental_health = mental_health_max
+	pain_value = 0.0
+	puzzles_solved = 0
+	blind_medicines = 0
+	lame_painkillers = 0
+	is_stage_2 = false
+	collected_clues.clear()
+	checkpoint_data = {}
+	_mental_last_emitted = mental_health_max
+	_pain_last_emitted = 0.0
+	target_mental_health = mental_health_max
+	target_pain_value = 0.0
+	lame_voice_tier = 4
+	is_game_active = true
+	is_game_over = false
+	is_game_won = false
+	mental_health_changed.emit(mental_health)
+	pain_value_changed.emit(pain_value)
+	lame_voice_tier_changed.emit(lame_voice_tier, pain_value)
+	print("[GameManager] 进入医院 Stage1：精神/疼痛与拾取计数已重置")
+
+
 func register_clue_collected(clue_name: String) -> void:
 	if clue_name.strip_edges() == "":
 		return

@@ -490,6 +490,17 @@ func _on_health(value: float) -> void:
 		spot_light.light_energy = 1.0 + ratio * 1.5
 
 
+## 测试关→医院后强制对齐 UI / 视野表现（避免缓慢 lerp 残留）
+func sync_vitals_display_from_manager() -> void:
+	_display_mh = GameManager.mental_health
+	if health_bar:
+		health_bar.value = _display_mh
+	if health_label:
+		health_label.text = "心理值: " + str(int(_display_mh)) + "%"
+	_apply_vision_radius_from_display()
+	_refresh_light()
+
+
 func _setup_spot_light() -> void:
 	spot_light = SpotLight3D.new()
 	spot_light.name = "BlindSpotLight"
@@ -540,6 +551,7 @@ func _apply_vision_radius_from_display() -> void:
 func _try_interact() -> void:
 	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_BLIND, true)
 	if hit.is_empty():
+		_show_msg("附近没有可拾取物品")
 		return
 	var target: Node = hit["target"]
 	var from: Vector3 = hit["origin"]

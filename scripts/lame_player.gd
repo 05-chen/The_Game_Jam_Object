@@ -257,6 +257,12 @@ func _update_lame_pain_ui(value: float) -> void:
 	_apply_pain_overlay_from_display()
 
 
+## 测试关→医院后强制对齐疼痛 UI（避免缓慢 lerp 残留）
+func sync_vitals_display_from_manager() -> void:
+	_display_pain = GameManager.pain_value
+	_update_lame_pain_ui(_display_pain)
+
+
 func _apply_pain_overlay_from_display() -> void:
 	if pain_overlay == null or not is_local:
 		return
@@ -271,6 +277,7 @@ func _apply_pain_overlay_from_display() -> void:
 func _try_interact() -> void:
 	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_LAME, true)
 	if hit.is_empty():
+		_show_msg("附近没有可拾取物品")
 		return
 	var target: Node = hit["target"]
 	var from: Vector3 = hit["origin"]
