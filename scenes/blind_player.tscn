@@ -21,14 +21,16 @@ shader_parameter/vision_bottom_y = 0.94
 
 [sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_sync"]
 properties/0/path = NodePath(".:global_position")
+properties/0/spawn = true
 properties/0/replication_mode = 2
 properties/1/path = NodePath(".:velocity")
+properties/1/spawn = true
 properties/1/replication_mode = 2
 
 [node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("1")
+pickup_show_debug = true
 
 [node name="CarryAnchor" type="Marker3D" parent="." unique_id=173011403]
 transform = Transform3D(1, 0, 0, 0, 0.8038361, 0.59485084, 0, -0.59485084, 0.8038361, 0, 1.7288766, 0.4055733)
@@ -118,7 +120,6 @@ grow_vertical = 0
 text = "[E] 互动"
 horizontal_alignment = 1
 
-[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
-root_path = NodePath("..")
-replication_interval = 0.0333333
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=106730987]
+replication_interval = 0.033333
 replication_config = SubResource("SceneReplicationConfig_sync")

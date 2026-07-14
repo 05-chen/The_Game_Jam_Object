@@ -16,6 +16,7 @@ size = Vector3(0.15, 0.1, 0.3)
 collision_layer = 0
 collision_mask = 0
 script = ExtResource("1")
+pickup_show_debug = true
 
 [node name="Col" type="CollisionShape3D" parent="." unique_id=1772330647]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)

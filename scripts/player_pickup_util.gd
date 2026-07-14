@@ -1,8 +1,9 @@
 extends RefCounted
 class_name PlayerPickupUtil
 
-## 拾取区：身前圆柱（默认横向半径≈身高/6，前向≈身高），后背无效。
-## 各玩家在 Inspector「拾取范围」分组里调节倍数与偏移。
+## 拾取区：以「胶囊中心」为原点向前延伸（默认横向半径≈身高/6，前向≈身高）。
+## 瘸子可叠背负高度（瞎子身高 / CarryAnchor），从而捡到更高处物品。
+## 勾选 pickup_show_debug 仅在编辑器显示范围线框（运行游戏不显示）。
 
 const DEFAULT_PLAYER_HEIGHT: float = 1.8
 
@@ -14,6 +15,18 @@ static func get_body_height(player: CharacterBody3D) -> float:
 	if col_shape != null and col_shape.shape is CapsuleShape3D:
 		return (col_shape.shape as CapsuleShape3D).height
 	return DEFAULT_PLAYER_HEIGHT
+
+
+## 碰撞胶囊中心（Col 节点世界坐标；无 Col 时取脚底 + 半身）
+static func get_capsule_center(player: Node3D) -> Vector3:
+	if player == null:
+		return Vector3.ZERO
+	var col := player.get_node_or_null("Col") as Node3D
+	if col != null:
+		return col.global_position
+	var body := player as CharacterBody3D
+	var height := get_body_height(body)
+	return player.global_position + Vector3(0.0, height * 0.5, 0.0)
 
 
 static func get_player_pickup_config(player: Node3D) -> Dictionary:
@@ -28,27 +41,15 @@ static func build_probe(player: Node3D, use_flat_forward: bool) -> Dictionary:
 	var cfg := get_player_pickup_config(player)
 	var radius_scale: float = float(cfg.get("radius_scale", 1.0))
 	var forward_scale: float = float(cfg.get("forward_scale", 1.0))
-	var origin_lower_m: float = float(cfg.get("origin_lower_m", 0.0))
+	var origin_offset_y: float = float(cfg.get("origin_offset_y", cfg.get("origin_lower_m", 0.0)))
 	var vertical_half_m: float = float(cfg.get("vertical_half_m", -1.0))
-	var use_camera_origin: bool = bool(cfg.get("use_camera_origin", true))
 	var pickup_radius: float = (height / 6.0) * radius_scale
 	var max_forward: float = height * forward_scale
 	if vertical_half_m < 0.0:
-		vertical_half_m = pickup_radius
-	var cam := player.get_node_or_null("Camera3D") as Camera3D
-	var origin: Vector3
-	var forward: Vector3
-	if use_camera_origin and cam != null:
-		origin = cam.global_position + Vector3(0.0, -origin_lower_m, 0.0)
-		forward = -cam.global_transform.basis.z
-	elif cam != null:
-		origin = cam.global_position + Vector3(0.0, -origin_lower_m, 0.0)
-		forward = -cam.global_transform.basis.z
-	else:
-		origin = player.global_position + Vector3(0.0, height * 0.5 - origin_lower_m, 0.0)
-		forward = -player.global_transform.basis.z
-	if use_flat_forward:
-		forward.y = 0.0
+		vertical_half_m = maxf(height * 0.55, pickup_radius)
+
+	var origin := _resolve_probe_origin(player, cfg, origin_offset_y)
+	var forward := _resolve_probe_forward(player, use_flat_forward)
 	if forward.length_squared() < 1e-8:
 		return {}
 	forward = forward.normalized()
@@ -62,6 +63,42 @@ static func build_probe(player: Node3D, use_flat_forward: bool) -> Dictionary:
 	}
 
 
+static func _resolve_probe_origin(player: Node3D, cfg: Dictionary, origin_offset_y: float) -> Vector3:
+	# 优先：脚本直接给出世界原点
+	if cfg.has("origin_world") and cfg["origin_world"] is Vector3:
+		var override_origin: Vector3 = cfg["origin_world"]
+		return override_origin + Vector3(0.0, origin_offset_y, 0.0)
+
+	var origin := get_capsule_center(player)
+
+	# 瘸子：判定中心抬到「瞎子胶囊中心 + 瞎子身高」，能覆盖肩上视角下的高处物品
+	if bool(cfg.get("use_carrier_height", false)):
+		var carrier_h := float(cfg.get("carrier_height_m", DEFAULT_PLAYER_HEIGHT))
+		var carrier_path := String(cfg.get("carrier_player_path", "../BlindPlayer"))
+		var carrier := player.get_node_or_null(carrier_path) as Node3D
+		if carrier != null:
+			var desired_y := get_capsule_center(carrier).y + carrier_h
+			origin.y = desired_y
+		else:
+			# 单独打开瘸子场景时：在自身胶囊中心上再加瞎子身高
+			origin.y += carrier_h
+
+	return origin + Vector3(0.0, origin_offset_y, 0.0)
+
+
+static func _resolve_probe_forward(player: Node3D, use_flat_forward: bool) -> Vector3:
+	# 朝向仍可用相机（只决定前方），原点不再用相机位置
+	var cam := player.get_node_or_null("Camera3D") as Camera3D
+	var forward: Vector3
+	if cam != null:
+		forward = -cam.global_transform.basis.z
+	else:
+		forward = -player.global_transform.basis.z
+	if use_flat_forward:
+		forward.y = 0.0
+	return forward
+
+
 static func is_in_front_pickup_zone(probe: Dictionary, target_pos: Vector3) -> bool:
 	if probe.is_empty():
 		return false
@@ -71,7 +108,7 @@ static func is_in_front_pickup_zone(probe: Dictionary, target_pos: Vector3) -> b
 	var pickup_radius: float = probe["pickup_radius"]
 	var vertical_half_m: float = probe["vertical_half_m"]
 	var to: Vector3 = target_pos - origin
-	# 贴身兜底：站在旁边即可（大场景道具高度不一致时很关键）
+	# 贴身兜底：站在旁边即可
 	var flat_to := Vector3(to.x, 0.0, to.z)
 	var flat_dist := flat_to.length()
 	if flat_dist <= pickup_radius * 1.35 and absf(to.y) <= vertical_half_m:
@@ -122,60 +159,3 @@ static func find_best_pickup_target(
 	if best == null:
 		return {}
 	return {"target": best, "origin": probe_origin}
-
-
-## 运行时调试：在玩家下挂 PickupDebug 网格，随 Inspector 参数实时变化
-static func sync_debug_visual(player: Node3D, debug_root: Node3D, use_flat_forward: bool) -> void:
-	if debug_root == null:
-		return
-	var probe := build_probe(player, use_flat_forward)
-	if probe.is_empty():
-		debug_root.visible = false
-		return
-	debug_root.visible = true
-	var forward: Vector3 = probe["forward"]
-	var radius: float = probe["pickup_radius"]
-	var length: float = probe["max_forward"]
-	var vertical_half: float = probe["vertical_half_m"]
-	var origin: Vector3 = probe["origin"]
-	var center := origin + forward * (length * 0.5)
-	debug_root.global_position = center
-	var up := Vector3.UP if absf(forward.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
-	var side := forward.cross(up).normalized()
-	up = side.cross(forward).normalized()
-	debug_root.global_transform.basis = Basis(side, up, forward)
-	var cyl := debug_root.get_node_or_null("Cylinder") as MeshInstance3D
-	var label := debug_root.get_node_or_null("Label") as Label3D
-	if cyl != null:
-		cyl.scale = Vector3(radius * 2.0, vertical_half * 2.0, length)
-	if label != null:
-		label.text = "R=%.2f F=%.2f V=%.2f" % [radius, length, vertical_half]
-
-
-static func ensure_debug_root(player: Node3D) -> Node3D:
-	var existing := player.get_node_or_null("PickupDebug") as Node3D
-	if existing != null:
-		return existing
-	var root := Node3D.new()
-	root.name = "PickupDebug"
-	var cyl := MeshInstance3D.new()
-	cyl.name = "Cylinder"
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.5
-	mesh.bottom_radius = 0.5
-	mesh.height = 1.0
-	cyl.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.2, 0.85, 1.0, 0.25)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	cyl.material_override = mat
-	root.add_child(cyl)
-	var label := Label3D.new()
-	label.name = "Label"
-	label.font_size = 48
-	label.modulate = Color(0.3, 1.0, 0.5)
-	label.position = Vector3(0, 0.6, 0)
-	root.add_child(label)
-	player.add_child(root)
-	return root

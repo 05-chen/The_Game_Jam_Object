@@ -294,10 +294,7 @@ func _authority_apply_local() -> void:
 
 
 func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, has_interact_from: bool) -> bool:
-	var use_flat: bool = false
-	if request_player.has_method("get_role"):
-		use_flat = request_player.get_role() == GameManager.ROLE_BLIND
-	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
+	var probe := PlayerPickupUtil.build_probe(request_player, true)
 	if probe.is_empty():
 		return false
 	if has_interact_from:
@@ -324,10 +321,7 @@ func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node
 
 
 func _get_interact_probe(request_player: Node3D) -> Dictionary:
-	var use_flat: bool = false
-	if request_player.has_method("get_role"):
-		use_flat = request_player.get_role() == GameManager.ROLE_BLIND
-	var probe := PlayerPickupUtil.build_probe(request_player, use_flat)
+	var probe := PlayerPickupUtil.build_probe(request_player, true)
 	if probe.is_empty():
 		return {"from": request_player.global_position + Vector3(0, 0.9, 0)}
 	return {"from": probe["origin"]}

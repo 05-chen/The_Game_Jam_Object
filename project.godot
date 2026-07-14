@@ -29,7 +29,7 @@ window/stretch/mode="canvas_items"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godotsteam/plugin.cfg")
+enabled=PackedStringArray("res://addons/godotsteam/plugin.cfg", "res://addons/pickup_range_gizmo/plugin.cfg")
 
 [filesystem]
 

@@ -17,15 +17,17 @@ extends CharacterBody3D
 @export var mouse_sensitivity: float = 0.003  # 鼠标灵敏度
 
 @export_group("拾取范围")
-## 横向半径倍数（瘸子背在肩上，默认比瞎子更大）
-@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 2.4
+## 横向半径倍数（瘸子背在肩上，默认可略大于瞎子）
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 2.0
 ## 身前最大距离倍数
-@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.6
-## 探测原点下移（米）：相机在肩上，下移后才能够地面药品
-@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 1.6
-## 垂直容忍半高（米）：医院大场景道具常远低于相机高度
-@export_range(0.1, 8.0, 0.05) var pickup_vertical_half_m: float = 5.0
-## 勾选后在运行中显示半透明拾取圆柱与数值
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.5
+## 相对背负抬高后的原点竖直微调（米）
+@export_range(-1.0, 2.0, 0.05) var pickup_origin_offset_y: float = 0.0
+## 垂直容忍半高（米）：从「肩高」中心向上/下可捡的范围
+@export_range(0.1, 8.0, 0.05) var pickup_vertical_half_m: float = 1.8
+## 无 CarryAnchor 时，额外抬高量（默认按瞎子身高 1.8）
+@export_range(0.0, 3.0, 0.05) var pickup_carrier_height_m: float = 1.8
+## 仅编辑器：勾选后在 3D 视口显示拾取范围线框（类似灯光范围；运行游戏时不会显示）
 @export var pickup_show_debug: bool = false
 
 ## 与瞎子共用跳跃高度常量；瘸子位移由 CarryAnchor 跟随，不单独做物理跳跃
@@ -56,7 +58,6 @@ var _carry_anchor_ref: Node3D = null
 @onready var voice_label: Label = $UI/Stats/VoiceLabel
 @onready var pain_overlay: ColorRect = $UI/PainOverlay
 @onready var msg_label: Label = $UI/MsgLabel
-var _pickup_debug_root: Node3D = null
 
 # 初始化函数
 func _ready() -> void:
@@ -102,17 +103,21 @@ func _ready() -> void:
 	_display_pain = GameManager.pain_value
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
-	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_LAME:
-		_pickup_debug_root = PlayerPickupUtil.ensure_debug_root(self)
 
 
 func get_pickup_probe_config() -> Dictionary:
+	var carrier_h := pickup_carrier_height_m
+	var blind := get_node_or_null("../BlindPlayer") as CharacterBody3D
+	if blind != null:
+		carrier_h = PlayerPickupUtil.get_body_height(blind)
 	return {
 		"radius_scale": pickup_radius_scale,
 		"forward_scale": pickup_forward_scale,
-		"origin_lower_m": pickup_origin_lower_m,
+		"origin_offset_y": pickup_origin_offset_y,
 		"vertical_half_m": pickup_vertical_half_m,
-		"use_camera_origin": true,
+		"use_carrier_height": true,
+		"carrier_height_m": carrier_h,
+		"carrier_player_path": "../BlindPlayer",
 	}
 
 
@@ -149,8 +154,6 @@ func _process(delta: float) -> void:
 			target_pain = GameManager.pain_value
 		_display_pain = lerpf(_display_pain, target_pain, clampf(PAIN_LERP_SPEED * delta, 0.0, 1.0))
 		_apply_pain_overlay_from_display()
-	if pickup_show_debug and is_local and GameManager.current_role == GameManager.ROLE_LAME:
-		PlayerPickupUtil.sync_debug_visual(self, _pickup_debug_root, false)
 
 
 func _apply_look(relative: Vector2) -> void:
@@ -263,7 +266,7 @@ func _apply_pain_overlay_from_display() -> void:
 
 # 交互尝试函数
 func _try_interact() -> void:
-	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_LAME, false)
+	var hit := PlayerPickupUtil.find_best_pickup_target(self, GameManager.ROLE_LAME, true)
 	if hit.is_empty():
 		return
 	var target: Node = hit["target"]
