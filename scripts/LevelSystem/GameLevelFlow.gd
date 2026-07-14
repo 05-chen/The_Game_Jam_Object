@@ -224,6 +224,7 @@ func _set_group_interaction(group_name: StringName, active: bool) -> void:
 			_set_generic_node_interaction(node, active)
 
 
+## 非药品节点（出生点、Area3D 触发器等）：显隐 + 碰撞绝育 + Area 关监听
 func _set_generic_node_interaction(node: Node, active: bool) -> void:
 	if node is CanvasItem:
 		(node as CanvasItem).visible = active
@@ -231,21 +232,39 @@ func _set_generic_node_interaction(node: Node, active: bool) -> void:
 		(node as Node3D).visible = active
 	node.set_process(active)
 	node.set_physics_process(active)
-	if node is CollisionObject3D:
-		var body := node as CollisionObject3D
-		if active:
-			body.collision_layer = body.collision_layer if body.collision_layer != 0 else 1
-		else:
-			body.collision_layer = 0
-			body.collision_mask = 0
-	_apply_collision_shapes_recursive(node, active)
+	_sterilize_physics_recursive(node, active)
+
+
+func _sterilize_physics_recursive(node: Node, active: bool) -> void:
+	if not is_instance_valid(node):
+		return
+	if node is CollisionShape3D:
+		(node as CollisionShape3D).set_deferred("disabled", not active)
+	if node is Area3D:
+		var area := node as Area3D
+		area.monitoring = active
+		area.monitorable = active
+		_set_collision_object_layers(area, active)
+	elif node is CollisionObject3D:
+		_set_collision_object_layers(node as CollisionObject3D, active)
+	for child in node.get_children():
+		_sterilize_physics_recursive(child, active)
+
+
+func _set_collision_object_layers(body: CollisionObject3D, active: bool) -> void:
+	if not active:
+		if not body.has_meta("_stage_saved_layer"):
+			body.set_meta("_stage_saved_layer", body.collision_layer)
+			body.set_meta("_stage_saved_mask", body.collision_mask)
+		body.collision_layer = 0
+		body.collision_mask = 0
+	else:
+		body.collision_layer = int(body.get_meta("_stage_saved_layer", body.collision_layer if body.collision_layer != 0 else 1))
+		body.collision_mask = int(body.get_meta("_stage_saved_mask", 0))
 
 
 func _apply_collision_shapes_recursive(node: Node, active: bool) -> void:
-	for child in node.get_children():
-		if child is CollisionShape3D:
-			(child as CollisionShape3D).set_deferred("disabled", not active)
-		_apply_collision_shapes_recursive(child, active)
+	_sterilize_physics_recursive(node, active)
 
 
 func _refresh_level_medicine_respawn_pool() -> void:
@@ -374,41 +393,53 @@ func _find_stage2_ghost() -> CharacterBody3D:
 
 
 func broadcast_stage2_ghost_progress(ratio: float) -> void:
-	if not multiplayer.is_server():
+	if not multiplayer.is_server() or GameManager.is_game_over:
+		return
+	if not GameManager.are_session_players_valid():
 		return
 	_relay_stage2_ghost_progress.rpc(ratio)
 
 
 func broadcast_stage2_ghost_position(pos: Vector3) -> void:
-	if not multiplayer.is_server():
+	if not multiplayer.is_server() or GameManager.is_game_over:
+		return
+	if not GameManager.are_session_players_valid():
 		return
 	_relay_stage2_ghost_position.rpc(pos)
 
 
 func broadcast_stage2_ghost_state(new_state: int, patrol_ratio: float, world_pos: Vector3) -> void:
-	if not multiplayer.is_server():
+	if not multiplayer.is_server() or GameManager.is_game_over:
+		return
+	if not GameManager.are_session_players_valid():
 		return
 	_relay_stage2_ghost_state.rpc(new_state, patrol_ratio, world_pos)
 
 
 @rpc("authority", "unreliable", "call_remote")
 func _relay_stage2_ghost_progress(ratio: float) -> void:
+	if GameManager.is_game_over:
+		return
 	var ghost := _find_stage2_ghost()
-	if ghost != null and ghost.has_method("apply_progress_sync"):
+	if ghost != null and is_instance_valid(ghost) and ghost.has_method("apply_progress_sync"):
 		ghost.apply_progress_sync(ratio)
 
 
 @rpc("authority", "unreliable", "call_remote")
 func _relay_stage2_ghost_position(pos: Vector3) -> void:
+	if GameManager.is_game_over:
+		return
 	var ghost := _find_stage2_ghost()
-	if ghost != null and ghost.has_method("apply_position_sync"):
+	if ghost != null and is_instance_valid(ghost) and ghost.has_method("apply_position_sync"):
 		ghost.apply_position_sync(pos)
 
 
 @rpc("authority", "reliable", "call_remote")
 func _relay_stage2_ghost_state(new_state: int, patrol_ratio: float, world_pos: Vector3) -> void:
+	if GameManager.is_game_over:
+		return
 	var ghost := _find_stage2_ghost()
-	if ghost != null and ghost.has_method("apply_state_sync"):
+	if ghost != null and is_instance_valid(ghost) and ghost.has_method("apply_state_sync"):
 		ghost.apply_state_sync(new_state, patrol_ratio, world_pos)
 
 
@@ -437,7 +468,11 @@ func _rpc_spawn_stage2_ghost() -> void:
 func _spawn_stage2_ghost_local() -> void:
 	if _stage2_ghost_spawned:
 		return
+	if _world == null or not is_instance_valid(_world):
+		return
 	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else _world
+	if search_root == null or not is_instance_valid(search_root):
+		return
 	if search_root.find_child(GHOST_STAGE2_NAME, true, false) != null:
 		_stage2_ghost_spawned = true
 		return
@@ -449,6 +484,8 @@ func _spawn_stage2_ghost_local() -> void:
 	if path_follow == null:
 		push_warning("[GameLevelFlow] %s 下未找到 PathFollow3D" % GHOST_SPAWN_POINT_STAGE2)
 		return
+	# 先复位轨道到远端起点，再生成鬼魂，杜绝「开局贴脸」
+	path_follow.progress_ratio = 0.0
 	var ghost: CharacterBody3D = GHOST_SCENE.instantiate() as CharacterBody3D
 	if ghost == null:
 		push_error("[GameLevelFlow] GHOST_SCENE 实例化失败")
@@ -461,6 +498,9 @@ func _spawn_stage2_ghost_local() -> void:
 	if multiplayer.is_server():
 		ghost.is_host_controlled = true
 		ghost.set_multiplayer_authority(1)
+	# 黑屏期间：强制对齐巡逻起点后再打开 AI
+	if ghost.has_method("activate_stage2_ai"):
+		ghost.call("activate_stage2_ai")
 	_register_ghost_for_checkpoint(ghost)
 	_stage2_ghost_spawned = true
 	print("[GameLevelFlow] Stage2 鬼魂已生成 @ PathFollow3D (server=%s)" % str(multiplayer.is_server()))
@@ -485,20 +525,24 @@ func _clear_tutorial_content() -> void:
 
 
 func _reposition_players(spawn_pos: Vector3) -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
 	var blind := _world.get_node_or_null("BlindPlayer") as Node3D
 	var lame := _world.get_node_or_null("LamePlayer") as Node3D
-	if blind:
+	if is_instance_valid(blind):
 		blind.global_position = spawn_pos
 		if blind is CharacterBody3D:
 			(blind as CharacterBody3D).velocity = Vector3.ZERO
-	if lame:
+	if is_instance_valid(lame):
 		lame.global_position = spawn_pos
 		if lame is CharacterBody3D:
 			(lame as CharacterBody3D).velocity = Vector3.ZERO
 
 
 func _show_stage_msg(text: String) -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
 	for player_name in ["BlindPlayer", "LamePlayer"]:
 		var player := _world.get_node_or_null(player_name)
-		if player != null and player.has_method("_show_msg"):
+		if player != null and is_instance_valid(player) and player.has_method("_show_msg"):
 			player.call("_show_msg", text)

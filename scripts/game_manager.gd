@@ -47,6 +47,10 @@ var target_pain_value: float = 0.0
 ## 瘸子语音阶梯（0=禁麦/听不见，4=满音量）；与 pain_to_voice_tier 同步
 var lame_voice_tier: int = 4
 
+## 局内运行时玩家节点引用（切关/回大厅前由 GameWorld 注册与清空，作 Null 哨兵）
+var blind_player: Node3D = null
+var lame_player: Node3D = null
+
 # 游戏事件信号
 signal mental_health_changed(value: float)
 signal pain_value_changed(value: float)
@@ -81,6 +85,23 @@ func reset_game() -> void:
 	target_mental_health = mental_health_max
 	target_pain_value = 0.0
 	lame_voice_tier = 4
+	clear_player_refs()
+
+
+func register_players(blind: Node3D, lame: Node3D) -> void:
+	blind_player = blind
+	lame_player = lame
+
+
+func clear_player_refs() -> void:
+	blind_player = null
+	lame_player = null
+
+
+## 切关 / 结算 / 回大厅时防止访问已释放玩家节点
+func are_session_players_valid() -> bool:
+	return is_instance_valid(blind_player) and is_instance_valid(lame_player)
+
 
 # 更新心理值函数 - 仅由本地瞎子玩家调用
 func update_mental_health(delta: float) -> void:
@@ -116,11 +137,15 @@ func add_mental_health(amount: float) -> void:
 
 # 减少疼痛值函数
 func reduce_pain(amount: float) -> void:
+	var prev_tier := lame_voice_tier
 	pain_value = clampf(pain_value - amount, 0.0, pain_max)
 	target_pain_value = pain_value
 	_pain_last_emitted = pain_value
 	_refresh_lame_voice_tier(pain_value)
 	pain_value_changed.emit(pain_value)
+	# Tier0→恢复：即使 Discrete tier 同帧已刷新，也强制再推一次信号，确保 VoiceCore 唤醒麦
+	if prev_tier == 0 and lame_voice_tier > 0:
+		lame_voice_tier_changed.emit(lame_voice_tier, pain_value)
 
 
 ## 联机：接收端镜像权威数值 + target；本地模拟端仍每帧 update_*，RPC 仅节流对齐对端

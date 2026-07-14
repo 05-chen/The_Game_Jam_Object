@@ -74,7 +74,7 @@ func _ready() -> void:
 		set_stage_interaction_active(false)
 
 
-## 由 GameLevelFlow._set_group_interaction 调用：彻底开关显隐、帧更新与碰撞
+## 由 GameLevelFlow._set_group_interaction 调用：彻底开关显隐、帧更新与碰撞/拾取
 func set_stage_interaction_active(active: bool) -> void:
 	_stage_interaction_enabled = active
 	visible = active
@@ -84,13 +84,26 @@ func set_stage_interaction_active(active: bool) -> void:
 		if not is_in_group("interactable_pickup"):
 			add_to_group("interactable_pickup")
 		collision_layer = _saved_collision_layer
+		collision_mask = 0
 		_set_all_collision_shapes_enabled(true)
+		_set_area3d_monitoring_recursive(self, true)
 		_setup_look()
 	else:
 		if is_in_group("interactable_pickup"):
 			remove_from_group("interactable_pickup")
 		collision_layer = 0
+		collision_mask = 0
 		_set_all_collision_shapes_enabled(false)
+		_set_area3d_monitoring_recursive(self, false)
+
+
+func _set_area3d_monitoring_recursive(node: Node, active: bool) -> void:
+	if node is Area3D:
+		var area := node as Area3D
+		area.monitoring = active
+		area.monitorable = active
+	for child in node.get_children():
+		_set_area3d_monitoring_recursive(child, active)
 
 
 func is_stage_interaction_enabled() -> bool:

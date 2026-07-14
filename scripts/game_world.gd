@@ -132,6 +132,7 @@ func _spawn_players_at(spawn_pos: Vector3) -> void:
 	add_child(lame)
 	blind.global_position = spawn_pos
 	lame.global_position = _level_flow.get_lame_spawn_for_phase(spawn_pos)
+	GameManager.register_players(blind, lame)
 
 	if not blind.is_local and not multiplayer.is_server():
 		_setup_remote_proxy(blind, Color(0.3, 0.5, 1.0, 0.7))
@@ -369,6 +370,7 @@ func _return_to_lobby_after_result() -> void:
 	if not is_inside_tree():
 		return
 	_result_shown = false
+	GameManager.clear_player_refs()
 	if VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
 		VoiceChatManager.shutdown_voice("game_over_return_lobby")
 	InputMouseGuard.release_for_ui()
@@ -582,6 +584,7 @@ func _request_return_lobby_rpc() -> void:
 @rpc("authority", "reliable", "call_local")
 func _apply_return_lobby() -> void:
 	GameManager.set_paused(false)
+	GameManager.clear_player_refs()
 	get_tree().paused = false
 	InputMouseGuard.release_for_ui()
 	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)

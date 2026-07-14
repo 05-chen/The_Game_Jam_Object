@@ -25,6 +25,8 @@ const ATTACK_HIT_SCALE: float = 1.08
 
 ## 兼容 LevelFlow：Host 生成时设为 true
 var is_host_controlled: bool = true
+## Stage2 激活前保持静默（切断 physics / HitZone / 导航推进）
+var _ai_active: bool = false
 
 var state: State = State.PATROL
 var _last_patrol_ratio: float = 0.0
@@ -48,8 +50,11 @@ func _ready() -> void:
 
 	var net_client := NetworkManager.is_multiplayer_game and not is_multiplayer_authority()
 
+	# 默认关闭 AI，等 activate_stage2_ai() 再开，防止未正式登场就寻路/打脸
+	_ai_active = false
+	set_physics_process(false)
+
 	if net_client:
-		set_physics_process(false)
 		set_process(true)
 		collision_layer = 0
 		collision_mask = 0
@@ -59,11 +64,46 @@ func _ready() -> void:
 		_setup_navigation_agent()
 		_setup_server_hit_zone()
 		collision_mask = 1
+		set_process(false)
 	else:
 		set_process(false)
 
 	_sync_target_pos = global_position
 	_setup_breath_animation_player()
+
+
+## LevelFlow 在 Stage2 黑屏转场中调用：对齐巡逻起点 → 再打开物理与 HitZone
+func activate_stage2_ai() -> void:
+	_resolve_path_follow()
+	_hit_latched = false
+	state = State.PATROL
+	velocity = Vector3.ZERO
+	if path_follow != null and is_instance_valid(path_follow):
+		path_follow.progress_ratio = 0.0
+		top_level = false
+		position = Vector3.ZERO
+		_last_patrol_ratio = 0.0
+		_detach_global_pos = global_position
+	_sync_target_pos = global_position
+	if _nav != null and is_instance_valid(_nav):
+		_nav.target_position = global_position
+	_ai_active = true
+	if _runs_authority_ai():
+		set_physics_process(true)
+		if _hit_zone != null and is_instance_valid(_hit_zone):
+			_hit_zone.monitoring = true
+			_hit_zone.monitorable = false
+	elif NetworkManager.is_multiplayer_game and not is_multiplayer_authority():
+		set_process(true)
+	print("[GhostAI] Stage2 AI 已激活 @ %s" % str(global_position))
+
+
+func deactivate_ai() -> void:
+	_ai_active = false
+	set_physics_process(false)
+	velocity = Vector3.ZERO
+	if _hit_zone != null and is_instance_valid(_hit_zone):
+		_hit_zone.monitoring = false
 
 
 func bind_path_follow(follow: PathFollow3D) -> void:
@@ -121,7 +161,7 @@ func _setup_server_hit_zone() -> void:
 	_hit_zone.name = "HitZone"
 	_hit_zone.collision_layer = 0
 	_hit_zone.collision_mask = 1 << 1
-	_hit_zone.monitoring = true
+	_hit_zone.monitoring = false
 	_hit_zone.monitorable = false
 	var hs := CollisionShape3D.new()
 	var sph := SphereShape3D.new()
@@ -133,11 +173,13 @@ func _setup_server_hit_zone() -> void:
 
 
 func _on_hit_body_entered(body: Node3D) -> void:
-	if not _runs_authority_ai():
+	if not _ai_active or not _runs_authority_ai():
 		return
 	if state != State.CHASE:
 		return
 	if _hit_latched or GameManager.is_game_over:
+		return
+	if not is_instance_valid(body):
 		return
 	if not (body is CharacterBody3D):
 		return
@@ -153,6 +195,15 @@ func _on_hit_body_entered(body: Node3D) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# 切关 / 回大厅哨兵：防止访问已释放的玩家或自身子节点
+	if not _ai_active:
+		return
+	if not is_instance_valid(self):
+		return
+	if not GameManager.are_session_players_valid():
+		return
+	if not is_instance_valid(GameManager.blind_player) or not is_instance_valid(GameManager.lame_player):
+		return
 	if not _runs_authority_ai():
 		return
 	if GameManager.is_game_over or GameManager.is_paused:
@@ -171,7 +222,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if GameManager.is_paused:
+	if not _ai_active:
+		return
+	if GameManager.is_paused or GameManager.is_game_over:
+		return
+	if not is_instance_valid(self):
 		return
 	if _runs_authority_ai():
 		return
@@ -312,13 +367,22 @@ func _move_direct_flat(target: Vector3, speed: float) -> void:
 
 
 func _find_blind_player() -> Node3D:
-	for p in get_tree().get_nodes_in_group("player"):
+	if is_instance_valid(GameManager.blind_player):
+		return GameManager.blind_player
+	var tree := get_tree()
+	if tree == null:
+		return null
+	for p in tree.get_nodes_in_group("player"):
+		if not is_instance_valid(p):
+			continue
 		if p.has_method("get_role") and p.get_role() == GameManager.ROLE_BLIND:
 			return p as Node3D
 	return null
 
 
 func _has_clear_hit_line(target: Node3D) -> bool:
+	if not is_instance_valid(target) or get_world_3d() == null:
+		return false
 	var from := global_position + Vector3(0, 0.9, 0)
 	var to := target.global_position + Vector3(0, 0.9, 0)
 	var query := PhysicsRayQueryParameters3D.create(from, to)
@@ -330,6 +394,8 @@ func _has_clear_hit_line(target: Node3D) -> bool:
 
 func apply_state_sync(new_state: State, patrol_ratio: float, world_pos: Vector3) -> void:
 	if _runs_authority_ai():
+		return
+	if not is_instance_valid(self):
 		return
 	_resolve_path_follow()
 	state = new_state
@@ -347,16 +413,20 @@ func apply_state_sync(new_state: State, patrol_ratio: float, world_pos: Vector3)
 func apply_progress_sync(ratio: float) -> void:
 	if _runs_authority_ai():
 		return
+	if not is_instance_valid(self):
+		return
 	if state != State.PATROL:
 		return
 	_resolve_path_follow()
-	if path_follow == null:
+	if path_follow == null or not is_instance_valid(path_follow):
 		return
 	path_follow.progress_ratio = ratio
 
 
 func apply_position_sync(pos: Vector3) -> void:
 	if _runs_authority_ai():
+		return
+	if not is_instance_valid(self):
 		return
 	_sync_target_pos = pos
 	if global_position.distance_to(pos) > 4.0:

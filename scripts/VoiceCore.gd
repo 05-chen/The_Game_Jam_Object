@@ -91,11 +91,15 @@ func _on_lame_voice_tier_changed(tier: int, pain: float) -> void:
 		return
 	match GameManager.current_role:
 		GameManager.ROLE_LAME:
+			var prev_tier := _voice_tier_lame_local
 			if tier == _voice_tier_lame_local:
 				return
 			_voice_tier_lame_local = tier
-			_apply_local_lame_voice_tier(tier)
-			_rpc_lame_voice_tier.rpc(tier, pain)
+			_apply_local_lame_voice_tier(tier, prev_tier)
+			if prev_tier == 0 and tier > 0:
+				_rpc_lame_voice_tier_reliable.rpc(tier, pain)
+			else:
+				_rpc_lame_voice_tier.rpc(tier, pain)
 		GameManager.ROLE_BLIND:
 			if tier == _voice_tier_blind_remote:
 				return
@@ -103,12 +107,42 @@ func _on_lame_voice_tier_changed(tier: int, pain: float) -> void:
 			_apply_blind_remote_lame_tier(tier)
 
 
-func _apply_local_lame_voice_tier(tier: int) -> void:
+func _apply_local_lame_voice_tier(tier: int, prev_tier: int = -999) -> void:
 	is_disabled_by_pain = tier == 0
 	set_voice_transmit_enabled(tier != 0)
 	_remote_target_db = 0.0
-	if tier == 0 and _is_recording:
+	if tier == 0:
+		if _is_recording:
+			_set_recording(false)
+	elif prev_tier == 0 or prev_tier < 0:
+		# Tier0（断麦）→ Tier1~4：强制停→启，避免 Steam 麦克死锁成「哑巴」
+		_wake_microphone_after_pain_mute()
+
+
+func _wake_microphone_after_pain_mute() -> void:
+	if not _runtime_enabled or _voice_soft_paused:
+		return
+	if is_disabled_by_pain or not _voice_transmit_enabled:
+		return
+	if not NetworkManager.is_voice_link_ready():
+		return
+	# 先干净关掉 Steam Voice，下一帧再拉起，冲掉内部静音锁存
+	if _is_recording:
 		_set_recording(false)
+	call_deferred("_deferred_restart_local_mic")
+
+
+func _deferred_restart_local_mic() -> void:
+	if not _runtime_enabled or _voice_soft_paused:
+		return
+	if is_disabled_by_pain or not _voice_transmit_enabled:
+		return
+	if not NetworkManager.is_voice_link_ready():
+		return
+	if GameManager.current_role != GameManager.ROLE_LAME:
+		return
+	if always_on_voice or Input.is_action_pressed("push_to_talk"):
+		_set_recording(true)
 
 
 func _apply_blind_remote_lame_tier(tier: int) -> void:
@@ -124,6 +158,16 @@ func _apply_blind_remote_lame_tier(tier: int) -> void:
 ## 联机：瘸子权威端广播语音 Tier（不可靠，与 P2P 语音通道分离）
 @rpc("any_peer", "unreliable", "call_remote")
 func _rpc_lame_voice_tier(tier: int, pain: float) -> void:
+	_apply_remote_lame_voice_tier_rpc(tier, pain)
+
+
+## Tier0→恢复时用可靠通道，避免瞎子端音量阶梯丢包
+@rpc("any_peer", "reliable", "call_remote")
+func _rpc_lame_voice_tier_reliable(tier: int, pain: float) -> void:
+	_apply_remote_lame_voice_tier_rpc(tier, pain)
+
+
+func _apply_remote_lame_voice_tier_rpc(tier: int, pain: float) -> void:
 	if not NetworkManager.is_multiplayer_game:
 		return
 	var sender_id := multiplayer.get_remote_sender_id()
@@ -278,7 +322,14 @@ func _ensure_remote_playback_ready() -> void:
 		_remote_playback = _remote_player.get_stream_playback()
 
 func set_local_pain_voice_policy(pain: float) -> void:
-	is_disabled_by_pain = GameManager.pain_to_voice_tier(pain) == 0
+	var tier := GameManager.pain_to_voice_tier(pain)
+	var prev_disabled := is_disabled_by_pain
+	is_disabled_by_pain = tier == 0
+	set_voice_transmit_enabled(tier != 0)
+	if tier == 0 and _is_recording:
+		_set_recording(false)
+	elif prev_disabled and tier > 0:
+		_wake_microphone_after_pain_mute()
 
 func set_voice_transmit_enabled(enabled: bool) -> void:
 	_voice_transmit_enabled = enabled
