@@ -274,6 +274,7 @@ func _try_interact() -> void:
 
 func _on_over(won: bool) -> void:
 	InputMouseGuard.release_for_ui()
+	# 结算大窗口由 GameWorld 弹出；此处仅做轻量提示
 	if won:
 		msg_label.text = "逃离成功!"
 	else:

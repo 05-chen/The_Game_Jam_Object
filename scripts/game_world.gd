@@ -24,12 +24,19 @@ var _ghost_spawn_positions: Dictionary = {}
 var _ui_layer: CanvasLayer = null
 var _pause_panel: PanelContainer = null
 var _fade_rect: ColorRect = null
+var _result_panel: Control = null
+var _result_title: Label = null
+var _result_subtitle: Label = null
+var _result_shown: bool = false
 const SPAWN_PHYSICS_WARMUP_FRAMES: int = 2
 const SPAWN_RPC_FALLBACK_SEC: float = 5.0
 var _spawn_release_token: int = 0
 var _players_spawned: bool = false
 var _pause_input_relay: Node = null
 const PAUSE_UI_LAYER: int = 100
+const RESULT_UI_LAYER: int = 110
+const RESULT_FADE_SEC: float = 0.8
+const RESULT_AUTO_RETURN_SEC: float = 8.0
 
 # 初始化函数
 func _ready() -> void:
@@ -259,9 +266,112 @@ func _make_item(pos: Vector3, type_id: int) -> void:
 	item.medicine_type = type_id
 	add_child(item)
 
-# 胜利/失败：联机回大厅
+# 胜利/失败：显示结算窗口，稍后再回大厅
 func _on_game_over(won: bool) -> void:
-	await get_tree().create_timer(2.0).timeout
+	await _show_result_overlay(won)
+	await get_tree().create_timer(RESULT_AUTO_RETURN_SEC).timeout
+	if not is_inside_tree():
+		return
+	if _result_shown:
+		_return_to_lobby_after_result()
+
+
+func _show_result_overlay(won: bool) -> void:
+	if _result_shown:
+		return
+	_result_shown = true
+	InputMouseGuard.release_for_ui()
+	if VoiceChatManager and VoiceChatManager.has_method("pause_voice"):
+		VoiceChatManager.pause_voice("game_over")
+	if get_tree().paused:
+		get_tree().paused = false
+		GameManager.set_paused(false)
+	if _pause_panel:
+		_pause_panel.visible = false
+	_ensure_result_panel()
+	if _result_title:
+		_result_title.text = "逃离成功！" if won else "游戏结束"
+		_result_title.modulate = Color(0.92, 0.95, 0.78) if won else Color(0.95, 0.55, 0.55)
+	if _result_subtitle:
+		_result_subtitle.text = (
+			"你们集齐了全部线索，成功逃出医院。" if won
+			else "你们没能逃出去……可从大厅再开一局。"
+		)
+	_result_panel.visible = true
+	_result_panel.modulate.a = 0.0
+	if _fade_rect:
+		_fade_rect.visible = true
+		_fade_rect.modulate.a = 0.0
+		var fade_tw := create_tween()
+		fade_tw.tween_property(_fade_rect, "modulate:a", 0.72, RESULT_FADE_SEC)\
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	var panel_tw := create_tween()
+	panel_tw.tween_property(_result_panel, "modulate:a", 1.0, RESULT_FADE_SEC)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	await panel_tw.finished
+
+
+func _ensure_result_panel() -> void:
+	if _result_panel != null and is_instance_valid(_result_panel):
+		return
+	if _ui_layer == null:
+		_setup_game_ui()
+	var result_layer := CanvasLayer.new()
+	result_layer.layer = RESULT_UI_LAYER
+	result_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(result_layer)
+
+	_result_panel = Control.new()
+	_result_panel.name = "ResultOverlay"
+	_result_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_result_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_result_panel.visible = false
+	_result_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	result_layer.add_child(_result_panel)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_result_panel.add_child(center)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(420, 220)
+	center.add_child(card)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 14)
+	card.add_child(vb)
+
+	_result_title = Label.new()
+	_result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_result_title.add_theme_font_size_override("font_size", 36)
+	vb.add_child(_result_title)
+
+	_result_subtitle = Label.new()
+	_result_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_result_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_result_subtitle.add_theme_font_size_override("font_size", 18)
+	vb.add_child(_result_subtitle)
+
+	var hint := Label.new()
+	hint.text = "几秒后自动返回大厅…"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.modulate = Color(0.75, 0.75, 0.75)
+	vb.add_child(hint)
+
+	var btn_lobby := Button.new()
+	btn_lobby.text = "返回大厅"
+	btn_lobby.custom_minimum_size = Vector2(0, 40)
+	btn_lobby.pressed.connect(_return_to_lobby_after_result)
+	vb.add_child(btn_lobby)
+
+
+func _return_to_lobby_after_result() -> void:
+	if not is_inside_tree():
+		return
+	_result_shown = false
+	if VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
+		VoiceChatManager.shutdown_voice("game_over_return_lobby")
+	InputMouseGuard.release_for_ui()
 	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 # 输入处理：由 PauseInputRelay（PROCESS_MODE_ALWAYS）轮询 pause_game，暂停时也能响应 ESC

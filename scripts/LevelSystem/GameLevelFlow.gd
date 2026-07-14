@@ -22,8 +22,10 @@ const GHOST_SPAWN_POINT_STAGE2 := &"GhostSpawnPoint_Stage2"
 const GHOST_STAGE2_NAME := &"GhostStage2"
 const GHOST_SCENE: PackedScene = preload("res://scenes/ghost.tscn")
 const STAGE1_CLUE_NAMES: Array[StringName] = [&"Clue1", &"Clue2", &"Clue3"]
-## Stage2 通关线索节点名（在 house_f_1 摆放后把名称填进此列表）
-const STAGE2_CLUE_NAMES: Array[StringName] = []
+## Stage2 通关线索（与 house_f_1.tscn 中 hospital_stage=STAGE_2 的线索节点名一致）
+const STAGE2_CLUE_NAMES: Array[StringName] = [
+	&"Clue4", &"Clue5", &"Clue6", &"Clue7", &"Clue8", &"Clue9",
+]
 
 var phase: Phase = Phase.TUTORIAL
 var level_scene: PackedScene
@@ -299,7 +301,20 @@ func notify_stage2_clue_collected(clue_name: String) -> void:
 		return
 	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
 		return
-	# TODO: Stage2 全部线索集齐后的通关逻辑（胜利/切场景）在此扩展
+	request_stage2_victory()
+
+
+## Stage2 线索全部集齐：Host 裁决胜利（广播 + 黑屏/胜利窗口）
+func request_stage2_victory() -> void:
+	if phase != Phase.MAIN or _current_hospital_stage != 2:
+		return
+	if GameManager.is_game_over:
+		return
+	if NetworkManager.is_multiplayer_game and not multiplayer.is_server():
+		return
+	_show_stage_msg("全部线索已收集，成功逃离医院！")
+	print("[GameLevelFlow] Stage2 通关 → 触发胜利")
+	GameManager.trigger_game_over(true)
 
 
 ## Stage1 通关后由玩法脚本调用，无快捷键、无自动触发。
