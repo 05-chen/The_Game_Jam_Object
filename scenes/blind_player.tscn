@@ -30,11 +30,11 @@ properties/1/replication_mode = 2
 [node name="BlindPlayer" type="CharacterBody3D" unique_id=672195732]
 collision_layer = 2
 script = ExtResource("1")
-pickup_radius_scale = 1.8499999999999999
-pickup_max_forward_m = 1.1
-pickup_origin_offset_y = -0.15000000000000002
+pickup_radius_scale = 1.85
+pickup_max_forward_m = 3.5
+pickup_origin_offset_y = -0.15
 pickup_vertical_half_m = -1.0
-pickup_show_debug = true
+pickup_show_debug = false
 
 [node name="CarryAnchor" type="Marker3D" parent="." unique_id=173011403]
 transform = Transform3D(1, 0, 0, 0, 0.8038361, 0.59485084, 0, -0.59485084, 0.8038361, 0, 1.7288766, 0.4055733)

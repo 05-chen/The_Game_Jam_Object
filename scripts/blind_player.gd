@@ -202,10 +202,17 @@ func _exit_tree() -> void:
 
 
 func _disable_scene_lights_for_blind_view() -> void:
+	if not is_local or GameManager.current_role != GameManager.ROLE_BLIND:
+		return
 	var scene_root := get_tree().current_scene
 	if scene_root == null:
 		return
 	_disable_lights_recursive(scene_root)
+
+
+## 医院场景晚于玩家 _ready 加载时，由 GameLevelFlow 再调一次
+func refresh_blind_scene_lights() -> void:
+	_disable_scene_lights_for_blind_view()
 
 
 func _disable_lights_recursive(node: Node) -> void:

@@ -128,7 +128,16 @@ func _enter_main_level() -> void:
 		_world.level_flow_save_checkpoint()
 	await _world.level_flow_fade_in(0.4)
 	_entering_main_level = false
+	_refresh_blind_lights_after_level_load()
 	_show_stage_msg("测试关完成，进入医院...")
+
+
+func _refresh_blind_lights_after_level_load() -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
+	var blind := _world.get_node_or_null("BlindPlayer")
+	if blind != null and is_instance_valid(blind) and blind.has_method("refresh_blind_scene_lights"):
+		blind.call("refresh_blind_scene_lights")
 
 
 func _begin_background_level_preload() -> void:
@@ -557,7 +566,12 @@ func _reposition_players(spawn_pos: Vector3) -> void:
 		if blind is CharacterBody3D:
 			(blind as CharacterBody3D).velocity = Vector3.ZERO
 	if is_instance_valid(lame):
-		lame.global_position = spawn_pos
+		# 优先贴到 CarryAnchor，避免与瞎子叠在同一点穿模
+		var anchor := blind.get_node_or_null("CarryAnchor") as Node3D if is_instance_valid(blind) else null
+		if anchor != null:
+			lame.global_position = anchor.global_position
+		else:
+			lame.global_position = get_lame_spawn_for_phase(spawn_pos)
 		if lame is CharacterBody3D:
 			(lame as CharacterBody3D).velocity = Vector3.ZERO
 
