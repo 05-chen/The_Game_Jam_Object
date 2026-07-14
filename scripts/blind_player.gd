@@ -221,7 +221,11 @@ func _disable_lights_recursive(node: Node) -> void:
 		if child is SpotLight3D and child.name == "BlindSpotLight":
 			continue
 		if child is Light3D:
-			(child as Light3D).visible = false
+			var light := child as Light3D
+			# 记下原状态，供瘸子端或调试时恢复（本机互不影响，但同机防呆）
+			if not light.has_meta("_pre_blind_visible"):
+				light.set_meta("_pre_blind_visible", light.visible)
+			light.visible = false
 		_disable_lights_recursive(child)
 
 

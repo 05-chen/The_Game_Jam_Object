@@ -103,6 +103,8 @@ func _ready() -> void:
 	GameManager.puzzle_solved.connect(_on_puzzle)
 	_update_lame_pain_ui(GameManager.pain_value)
 	_display_pain = GameManager.pain_value
+	# 瘸子应看清场景：不是 VisionMask，而是需要环境光 + 确保场景灯没被瞎子逻辑关掉
+	_setup_lame_view_lighting()
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
 
@@ -126,8 +128,52 @@ func get_pickup_probe_config() -> Dictionary:
 
 func _on_spawning_finished() -> void:
 	velocity = Vector3.ZERO
+	if is_local and GameManager.current_role == GameManager.ROLE_LAME:
+		_setup_lame_view_lighting()
 	if _can_control_local_camera():
 		InputMouseGuard.capture_for_local_player()
+
+
+## 医院无 WorldEnvironment + 点光稀疏时会漆黑；给瘸子相机单独环境光，并恢复场景灯
+func _setup_lame_view_lighting() -> void:
+	if not is_local or GameManager.current_role != GameManager.ROLE_LAME:
+		return
+	if camera == null:
+		return
+	if camera.environment == null:
+		var env := Environment.new()
+		env.background_mode = Environment.BG_COLOR
+		env.background_color = Color(0.015, 0.015, 0.02)
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(0.42, 0.45, 0.5)
+		env.ambient_light_energy = 0.65
+		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		camera.environment = env
+	ensure_scene_lights_for_lame_view()
+
+
+## 进医院后由 GameLevelFlow 再调：防止误关场景灯导致瘸子全黑
+func ensure_scene_lights_for_lame_view() -> void:
+	if not is_local or GameManager.current_role != GameManager.ROLE_LAME:
+		return
+	var root := get_tree().current_scene
+	if root == null:
+		return
+	_restore_scene_lights_recursive(root)
+
+
+func _restore_scene_lights_recursive(node: Node) -> void:
+	for child in node.get_children():
+		if child is SpotLight3D and child.name == "BlindSpotLight":
+			continue
+		if child is Light3D:
+			var light := child as Light3D
+			if light.has_meta("_pre_blind_visible"):
+				light.visible = bool(light.get_meta("_pre_blind_visible"))
+			else:
+				light.visible = true
+		_restore_scene_lights_recursive(child)
+
 
 # 输入处理函数
 func _unhandled_input(event: InputEvent) -> void:

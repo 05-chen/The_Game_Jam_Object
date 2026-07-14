@@ -133,7 +133,7 @@ func _enter_main_level() -> void:
 		_world.level_flow_save_checkpoint()
 	await _world.level_flow_fade_in(0.4)
 	_entering_main_level = false
-	_refresh_blind_lights_after_level_load()
+	_refresh_role_lighting_after_level_load()
 	_show_stage_msg("进入医院：状态与拾取进度已重置")
 
 
@@ -146,13 +146,22 @@ func _sync_player_displays_after_reset() -> void:
 			player.call("sync_vitals_display_from_manager")
 
 
-func _refresh_blind_lights_after_level_load() -> void:
+func _refresh_role_lighting_after_level_load() -> void:
 	if _world == null or not is_instance_valid(_world):
 		return
+	# 本机若是瞎子：关场景灯；若是瘸子：开灯 + 相机环境光
 	var blind := _world.get_node_or_null("BlindPlayer")
 	if blind != null and is_instance_valid(blind) and blind.has_method("refresh_blind_scene_lights"):
 		blind.call("refresh_blind_scene_lights")
+	var lame := _world.get_node_or_null("LamePlayer")
+	if lame != null and is_instance_valid(lame) and lame.has_method("ensure_scene_lights_for_lame_view"):
+		lame.call("ensure_scene_lights_for_lame_view")
+		if lame.has_method("_setup_lame_view_lighting"):
+			lame.call("_setup_lame_view_lighting")
 
+
+func _refresh_blind_lights_after_level_load() -> void:
+	_refresh_role_lighting_after_level_load()
 
 func _begin_background_level_preload() -> void:
 	if _level_scene_path == "" or _level_preload_started:
