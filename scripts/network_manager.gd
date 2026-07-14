@@ -267,7 +267,7 @@ func hard_cleanup(_reason: String = "manual") -> void:
 		elif VoiceChatManager.has_method("shutdown_voice"):
 			VoiceChatManager.shutdown_voice("close_room")
 	# 4) 清空局内状态与玩家引用，防止回大厅/断线后旧精神值、药数、game_over 残留
-	GameManager.reset_game()
+	GameManager.reset_game_session()
 	peer = null
 	lobby_id = 0
 	invite_code = ""
@@ -345,7 +345,7 @@ func start_game_all(host_role: int) -> void:
 		GameManager.current_role = host_role
 	else:
 		GameManager.current_role = GameManager.ROLE_LAME if host_role == GameManager.ROLE_BLIND else GameManager.ROLE_BLIND
-	GameManager.reset_game()
+	GameManager.reset_game_session()
 	get_tree().change_scene_to_file(GAME_WORLD_SCENE)
 
 func host_start_game(host_role: int) -> void:

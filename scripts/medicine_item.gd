@@ -25,10 +25,15 @@ enum HospitalStage {
 @export var medicine_type: int = 0
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
+## 保留字段：环境层；拾取合法性已不再用环境射线挡结果（避免台面/嵌墙误杀）
 @export_flags_3d_physics var environment_mask: int = 1
+## 仅检测物品层（layer 4 = bit 8）；嵌墙时不影响拾取判定
+@export_flags_3d_physics var item_pickup_mask: int = 8
 @export var client_probe_slack_m: float = 1.5
-## 视线检测：射线打在台面/地面时，落点距道具中心在此范围内仍视为可拾取
+## 视线检测：射线打在台面/地面时，落点距道具中心在此范围内仍视为可拾取（软校验备用）
 @export var pickup_los_surface_slack_m: float = 3.5
+## false=忽略环境遮挡（推荐）；true=仍做软 LOS（台面容差）
+@export var pickup_require_environment_los: bool = false
 @export var pickup_fx_duration: float = 0.15
 
 var initial_y: float = 0.0
@@ -74,27 +79,26 @@ func _ready() -> void:
 		set_stage_interaction_active(false)
 
 
-## 由 GameLevelFlow._set_group_interaction 调用：彻底开关显隐、帧更新与碰撞/拾取
+## 由 GameLevelFlow._set_group_interaction 调用：彻底开关显隐、帧更新与碰撞/拾取（物理绝育）
 func set_stage_interaction_active(active: bool) -> void:
 	_stage_interaction_enabled = active
 	visible = active
 	set_process(active)
 	set_physics_process(active)
+	# 根节点 Col + 子孙 CollisionShape3D 一并 deferred 开关
+	_set_all_collision_shapes_enabled(active and not is_collected)
+	_set_area3d_monitoring_recursive(self, active and not is_collected)
 	if active and not is_collected:
 		if not is_in_group("interactable_pickup"):
 			add_to_group("interactable_pickup")
 		collision_layer = _saved_collision_layer
 		collision_mask = 0
-		_set_all_collision_shapes_enabled(true)
-		_set_area3d_monitoring_recursive(self, true)
 		_setup_look()
 	else:
 		if is_in_group("interactable_pickup"):
 			remove_from_group("interactable_pickup")
 		collision_layer = 0
 		collision_mask = 0
-		_set_all_collision_shapes_enabled(false)
-		_set_area3d_monitoring_recursive(self, false)
 
 
 func _set_area3d_monitoring_recursive(node: Node, active: bool) -> void:
@@ -129,9 +133,9 @@ func _set_all_collision_shapes_enabled(enabled: bool) -> void:
 
 
 func _apply_collision_shapes_recursive(node: Node, enabled: bool) -> void:
+	if node is CollisionShape3D:
+		(node as CollisionShape3D).set_deferred("disabled", not enabled)
 	for child in node.get_children():
-		if child is CollisionShape3D:
-			(child as CollisionShape3D).set_deferred("disabled", not enabled)
 		_apply_collision_shapes_recursive(child, enabled)
 
 
@@ -304,18 +308,29 @@ func _is_collect_request_legal(request_player: Node3D, interact_from: Vector3, h
 	var item_center: Vector3 = get_pickup_focus_position()
 	if not PlayerPickupUtil.is_in_front_pickup_zone(probe, item_center):
 		return false
+	# 物品属 interactable_pickup：几何合格即可；不因墙/地嵌模挡拾取
+	if is_in_group("interactable_pickup") or is_in_group("interactables"):
+		return true
+	if not pickup_require_environment_los:
+		return true
 	return _has_clear_environment_los(probe["origin"], item_center, request_player)
 
 
 func _has_clear_environment_los(from: Vector3, to: Vector3, request_player: Node3D) -> bool:
 	var space := get_world_3d().direct_space_state
+	# 软校验默认仍打环境；若只关心物品重叠可改用 item_pickup_mask
 	var params := PhysicsRayQueryParameters3D.create(from, to)
 	params.collision_mask = environment_mask
 	params.exclude = [request_player.get_rid(), get_rid()]
 	var hit := space.intersect_ray(params)
 	if hit.is_empty():
 		return true
-	# 道具常摆在桌子/台面上：射线先打到台面时，落点靠近道具仍算可见
+	var collider = hit.get("collider")
+	if collider is Node and (
+		(collider as Node).is_in_group("interactable_pickup")
+		or (collider as Node).is_in_group("interactables")
+	):
+		return true
 	var hit_pos: Vector3 = hit.position
 	return hit_pos.distance_to(to) <= pickup_los_surface_slack_m
 

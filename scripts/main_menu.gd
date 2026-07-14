@@ -6,6 +6,7 @@ extends Control
 func _ready() -> void:
 	if not NetworkManager.is_multiplayer_game:
 		NetworkManager.hard_cleanup("enter_main_menu")
+		GameManager.reset_game_session()
 	_show_interrupt_popup_if_needed()
 	# 单机入口已禁用
 	%BlindButton.visible = false

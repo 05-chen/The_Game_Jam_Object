@@ -46,6 +46,10 @@ var target_mental_health: float = 100.0
 var target_pain_value: float = 0.0
 ## 瘸子语音阶梯（0=禁麦/听不见，4=满音量）；与 pain_to_voice_tier 同步
 var lame_voice_tier: int = 4
+## 医院是否已进入 Stage2（切关时由 GameLevelFlow 写入）
+var is_stage_2: bool = false
+## 本局已收集线索名（Host/本地权威写入，开局清空）
+var collected_clues: Dictionary = {}
 
 ## 局内运行时玩家节点引用（切关/回大厅前由 GameWorld 注册与清空，作 Null 哨兵）
 var blind_player: Node3D = null
@@ -66,8 +70,10 @@ signal pause_changed(paused: bool)
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
-# 重置游戏函数
-func reset_game() -> void:
+
+## 新开局 / 回大厅：强制清空 Autoload 对局状态（推荐入口）
+## 需求映射：current_sanity→mental_health，current_pain→pain_value，current_voice_tier→lame_voice_tier
+func reset_game_session() -> void:
 	mental_health = mental_health_max
 	pain_value = 0.0
 	is_game_active = true
@@ -80,19 +86,31 @@ func reset_game() -> void:
 	checkpoint_data = {}
 	advance_to_main_on_puzzle_clear = false
 	puzzle_clues_enabled = false
+	is_stage_2 = false
+	collected_clues.clear()
 	_mental_last_emitted = mental_health_max
 	_pain_last_emitted = 0.0
 	target_mental_health = mental_health_max
 	target_pain_value = 0.0
 	lame_voice_tier = 4
 	clear_player_refs()
-	# 通知监听者，避免上一局数值残留在新一局 UI / 语音阶梯
 	mental_health_changed.emit(mental_health)
 	pain_value_changed.emit(pain_value)
 	lame_voice_tier_changed.emit(lame_voice_tier, pain_value)
 	pause_changed.emit(false)
 	if LevelManager != null and LevelManager.has_method("reset_session"):
 		LevelManager.reset_session()
+
+
+## 兼容旧调用名
+func reset_game() -> void:
+	reset_game_session()
+
+
+func register_clue_collected(clue_name: String) -> void:
+	if clue_name.strip_edges() == "":
+		return
+	collected_clues[clue_name] = true
 
 
 func register_players(blind: Node3D, lame: Node3D) -> void:

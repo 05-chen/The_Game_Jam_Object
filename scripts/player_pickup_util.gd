@@ -6,6 +6,10 @@ class_name PlayerPickupUtil
 ## 勾选 pickup_show_debug 仅在编辑器显示范围线框（运行游戏不显示）。
 
 const DEFAULT_PLAYER_HEIGHT: float = 1.8
+## 统一最远拾取距离（米）；配置里可用 max_forward_m 覆盖
+const DEFAULT_MAX_FORWARD_M: float = 3.5
+## 物理层 4 = items（project.godot）；拾取几何判定不依赖环境射线
+const ITEM_PHYSICS_LAYER_BIT: int = 8
 
 
 static func get_body_height(player: CharacterBody3D) -> float:
@@ -44,7 +48,9 @@ static func build_probe(player: Node3D, use_flat_forward: bool) -> Dictionary:
 	var origin_offset_y: float = float(cfg.get("origin_offset_y", cfg.get("origin_lower_m", 0.0)))
 	var vertical_half_m: float = float(cfg.get("vertical_half_m", -1.0))
 	var pickup_radius: float = (height / 6.0) * radius_scale
-	var max_forward: float = height * forward_scale
+	var max_forward: float = float(cfg.get("max_forward_m", DEFAULT_MAX_FORWARD_M))
+	if max_forward <= 0.0:
+		max_forward = height * forward_scale
 	if vertical_half_m < 0.0:
 		vertical_half_m = maxf(height * 0.55, pickup_radius)
 

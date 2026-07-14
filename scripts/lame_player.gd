@@ -18,13 +18,15 @@ extends CharacterBody3D
 
 @export_group("拾取范围")
 ## 横向半径倍数（瘸子背在肩上，默认可略大于瞎子）
-@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 2.0
-## 身前最大距离倍数
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 2.2
+## 身前最大距离（米），统一 3.5；<0 时回退为身高×倍数
+@export_range(0.5, 8.0, 0.05) var pickup_max_forward_m: float = 3.5
+## 身前最大距离倍数（仅当 max_forward_m ≤ 0 时使用）
 @export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.5
 ## 相对背负抬高后的原点竖直微调（米）
 @export_range(-1.0, 2.0, 0.05) var pickup_origin_offset_y: float = 0.0
 ## 垂直容忍半高（米）：从「肩高」中心向上/下可捡的范围
-@export_range(0.1, 8.0, 0.05) var pickup_vertical_half_m: float = 1.8
+@export_range(0.1, 8.0, 0.05) var pickup_vertical_half_m: float = 2.2
 ## 无 CarryAnchor 时，额外抬高量（默认按瞎子身高 1.8）
 @export_range(0.0, 3.0, 0.05) var pickup_carrier_height_m: float = 1.8
 ## 仅编辑器：勾选后在 3D 视口显示拾取范围线框（类似灯光范围；运行游戏时不会显示）
@@ -113,6 +115,7 @@ func get_pickup_probe_config() -> Dictionary:
 	return {
 		"radius_scale": pickup_radius_scale,
 		"forward_scale": pickup_forward_scale,
+		"max_forward_m": pickup_max_forward_m,
 		"origin_offset_y": pickup_origin_offset_y,
 		"vertical_half_m": pickup_vertical_half_m,
 		"use_carrier_height": true,

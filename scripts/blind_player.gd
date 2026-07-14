@@ -14,12 +14,14 @@ extends CharacterBody3D
 @export_group("拾取范围")
 ## 横向半径倍数（1.0 ≈ 身高/6，越大越容易够到侧面）
 @export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.8
-## 身前最大距离倍数（1.0 ≈ 一个身高）
+## 身前最大距离（米），统一 3.5
+@export_range(0.5, 8.0, 0.05) var pickup_max_forward_m: float = 3.5
+## 身前最大距离倍数（仅当 max_forward_m ≤ 0 时使用）
 @export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.5
 ## 相对胶囊中心的竖直微调（米），上为正
 @export_range(-1.0, 2.0, 0.05) var pickup_origin_offset_y: float = 0.0
 ## 垂直容忍半高（米）：从胶囊中心向上/下可捡的范围
-@export_range(-1.0, 8.0, 0.05) var pickup_vertical_half_m: float = 1.4
+@export_range(-1.0, 8.0, 0.05) var pickup_vertical_half_m: float = 1.6
 ## 仅编辑器：勾选后在 3D 视口显示拾取范围线框（类似灯光范围；运行游戏时不会显示）
 @export var pickup_show_debug: bool = false
 ## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）
@@ -158,6 +160,7 @@ func get_pickup_probe_config() -> Dictionary:
 	return {
 		"radius_scale": pickup_radius_scale,
 		"forward_scale": pickup_forward_scale,
+		"max_forward_m": pickup_max_forward_m,
 		"origin_offset_y": pickup_origin_offset_y,
 		"vertical_half_m": pickup_vertical_half_m,
 		"use_carrier_height": false,

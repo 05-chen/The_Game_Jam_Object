@@ -200,6 +200,7 @@ func _ensure_builtin_stage_groups() -> void:
 func switch_to_stage(stage_num: int) -> void:
 	var stage := clampi(stage_num, 1, 2)
 	_current_hospital_stage = stage
+	GameManager.is_stage_2 = (stage == 2)
 	match stage:
 		1:
 			_set_group_interaction(GROUP_STAGE1_ONLY, true)
@@ -218,18 +219,36 @@ func _set_group_interaction(group_name: StringName, active: bool) -> void:
 	for node in tree.get_nodes_in_group(group_name):
 		if node == null or not is_instance_valid(node):
 			continue
+		# 药品/线索已自带完整绝育，勿再套 set_node_physics_active（会把 layer 存成 0）
 		if node.has_method("set_stage_interaction_active"):
 			node.call("set_stage_interaction_active", active)
-		else:
-			_set_generic_node_interaction(node, active)
+			continue
+		if node is Node3D:
+			(node as Node3D).visible = active
+			set_node_physics_active(node as Node3D, active)
+		elif node is CanvasItem:
+			(node as CanvasItem).visible = active
+			node.set_process(active)
+			node.set_physics_process(active)
 
 
-## 非药品节点（出生点、Area3D 触发器等）：显隐 + 碰撞绝育 + Area 关监听
+## 动态物理绝育：未激活节点从物理世界「消失」，避免上百个 Stage2 物体持续碰撞计算
+func set_node_physics_active(node: Node3D, active: bool) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	node.set_process(active)
+	node.set_physics_process(active)
+	_sterilize_physics_recursive(node, active)
+
+
+## 非药品节点后备路径（兼容旧调用）
 func _set_generic_node_interaction(node: Node, active: bool) -> void:
 	if node is CanvasItem:
 		(node as CanvasItem).visible = active
 	if node is Node3D:
 		(node as Node3D).visible = active
+		set_node_physics_active(node as Node3D, active)
+		return
 	node.set_process(active)
 	node.set_physics_process(active)
 	_sterilize_physics_recursive(node, active)
@@ -277,6 +296,8 @@ func _refresh_level_medicine_respawn_pool() -> void:
 func _reset_stage1_clue_progress() -> void:
 	_stage1_clues_collected.clear()
 	_stage2_clues_collected.clear()
+	GameManager.collected_clues.clear()
+	GameManager.is_stage_2 = false
 
 
 ## 拾取 Stage1 线索（medicine_type=2 且 hospital_stage=STAGE_1）时调用
@@ -289,6 +310,7 @@ func notify_stage1_clue_collected(clue_name: String) -> void:
 	if _stage1_clues_collected.has(clue_name):
 		return
 	_stage1_clues_collected[clue_name] = true
+	GameManager.register_clue_collected(clue_name)
 	var total: int = _stage1_clues_collected.size()
 	_show_stage_msg("获得线索 %s（%d/%d）" % [clue_name, total, STAGE1_CLUE_NAMES.size()])
 	print("[GameLevelFlow] Stage1 线索已收集: %s (%d/%d)" % [clue_name, total, STAGE1_CLUE_NAMES.size()])
@@ -313,6 +335,7 @@ func notify_stage2_clue_collected(clue_name: String) -> void:
 	if _stage2_clues_collected.has(clue_name):
 		return
 	_stage2_clues_collected[clue_name] = true
+	GameManager.register_clue_collected(clue_name)
 	var total: int = _stage2_clues_collected.size()
 	_show_stage_msg("获得线索 %s（%d/%d）" % [clue_name, total, STAGE2_CLUE_NAMES.size()])
 	print("[GameLevelFlow] Stage2 线索已收集: %s (%d/%d)" % [clue_name, total, STAGE2_CLUE_NAMES.size()])

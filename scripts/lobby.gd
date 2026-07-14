@@ -141,10 +141,12 @@ func _on_lobby_search_result(found: bool, matched_count: int) -> void:
 
 # 选择瞎子角色函数
 func _on_pick_blind() -> void:
+	GameManager.reset_game_session()
 	NetworkManager.host_start_game(GameManager.ROLE_BLIND)
 
 # 选择瘸子角色函数
 func _on_pick_lame() -> void:
+	GameManager.reset_game_session()
 	NetworkManager.host_start_game(GameManager.ROLE_LAME)
 
 ## 对局结束后回到大厅时恢复 UI；会话条与「断开联机」仅在大厅出现
