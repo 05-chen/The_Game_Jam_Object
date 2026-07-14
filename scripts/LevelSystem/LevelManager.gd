@@ -31,6 +31,18 @@ func register_in_scene_flow(flow: GameLevelFlow) -> void:
 	_in_scene_flow = flow
 
 
+## 回大厅 / 关房 / 新开局前清空关卡进度索引
+func reset_session() -> void:
+	_level_index = 0
+	_in_scene_flow = null
+	if _tween != null and is_instance_valid(_tween):
+		_tween.kill()
+		_tween = null
+	if _mask_rect != null:
+		_mask_rect.modulate.a = 0.0
+		_mask_rect.visible = false
+
+
 func _on_tutorial_stage_cleared() -> void:
 	notify_tutorial_stage_cleared()
 

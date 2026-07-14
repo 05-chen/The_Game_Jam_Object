@@ -266,8 +266,8 @@ func hard_cleanup(_reason: String = "manual") -> void:
 			VoiceChatManager.stop_voice_capture("close_room")
 		elif VoiceChatManager.has_method("shutdown_voice"):
 			VoiceChatManager.shutdown_voice("close_room")
-	# 4) 清空玩家引用，防止切回大厅后远端 RPC 访问已释放节点
-	GameManager.clear_player_refs()
+	# 4) 清空局内状态与玩家引用，防止回大厅/断线后旧精神值、药数、game_over 残留
+	GameManager.reset_game()
 	peer = null
 	lobby_id = 0
 	invite_code = ""

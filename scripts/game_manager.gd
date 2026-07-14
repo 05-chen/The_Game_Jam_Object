@@ -86,6 +86,13 @@ func reset_game() -> void:
 	target_pain_value = 0.0
 	lame_voice_tier = 4
 	clear_player_refs()
+	# 通知监听者，避免上一局数值残留在新一局 UI / 语音阶梯
+	mental_health_changed.emit(mental_health)
+	pain_value_changed.emit(pain_value)
+	lame_voice_tier_changed.emit(lame_voice_tier, pain_value)
+	pause_changed.emit(false)
+	if LevelManager != null and LevelManager.has_method("reset_session"):
+		LevelManager.reset_session()
 
 
 func register_players(blind: Node3D, lame: Node3D) -> void:

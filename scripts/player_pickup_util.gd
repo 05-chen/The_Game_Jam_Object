@@ -71,6 +71,11 @@ static func is_in_front_pickup_zone(probe: Dictionary, target_pos: Vector3) -> b
 	var pickup_radius: float = probe["pickup_radius"]
 	var vertical_half_m: float = probe["vertical_half_m"]
 	var to: Vector3 = target_pos - origin
+	# 贴身兜底：站在旁边即可（大场景道具高度不一致时很关键）
+	var flat_to := Vector3(to.x, 0.0, to.z)
+	var flat_dist := flat_to.length()
+	if flat_dist <= pickup_radius * 1.35 and absf(to.y) <= vertical_half_m:
+		return true
 	if to.dot(forward) <= 0.0:
 		return false
 	var along: float = to.dot(forward)

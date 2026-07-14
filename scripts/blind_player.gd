@@ -13,13 +13,13 @@ extends CharacterBody3D
 
 @export_group("拾取范围")
 ## 横向半径倍数（1.0 ≈ 身高/6，越大越容易够到侧面）
-@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.35
+@export_range(0.2, 4.0, 0.05) var pickup_radius_scale: float = 1.8
 ## 身前最大距离倍数（1.0 ≈ 一个身高）
-@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.25
+@export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.5
 ## 探测原点下移（米），越大越利于够地面/台面物品
-@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 0.4
-## 垂直容忍半高（米）；-1 表示与横向半径相同
-@export_range(-1.0, 2.5, 0.05) var pickup_vertical_half_m: float = 0.9
+@export_range(0.0, 2.5, 0.05) var pickup_origin_lower_m: float = 0.55
+## 垂直容忍半高（米）；大场景药品 Y 常低于地面锚点，需远大于半径
+@export_range(-1.0, 8.0, 0.05) var pickup_vertical_half_m: float = 4.5
 ## 勾选后在运行中显示半透明拾取圆柱与数值
 @export var pickup_show_debug: bool = false
 ## 瞎子玩法：锁定俯仰，禁止鼠标抬头/低头（避免透过屏幕下方圆孔看路）
@@ -109,9 +109,11 @@ func _ready() -> void:
 	collision_mask = 1
 	floor_stop_on_slope = true
 	floor_max_angle = deg_to_rad(50.0)
-	max_slides = 4
-	floor_snap_length = 0.12
-	safe_margin = 0.04
+	# 穿模挡墙只靠 move_and_slide 内建滑动，无额外“每帧挤出修复”循环（避免额外卡顿）
+	max_slides = 6
+	floor_snap_length = 0.15
+	safe_margin = 0.08
+	wall_min_slide_angle = deg_to_rad(15.0)
 	_configure_vision_mask()
 	_capture_locked_camera_pitch()
 	_lock_blind_camera_pitch()

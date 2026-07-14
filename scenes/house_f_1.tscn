@@ -21,7 +21,7 @@ _data = {
 point_count = 104
 
 [node name="houseF1" unique_id=1977836609 instance=ExtResource("1_bgg21")]
-transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.05, 0, 0, 0)
+transform = Transform3D(0.07, 0, 0, 0, 0.07, 0, 0, 0, 0.07, 0, 0, 0)
 script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 enable_medicine_respawn = true
@@ -205,17 +205,14 @@ hospital_stage = 2
 [node name="Clue1" parent="." index="319" unique_id=2035597389 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 115.064316, -1.6487265, 351.59454)
 medicine_type = 2
-hospital_stage = 1
 
 [node name="Clue2" parent="." index="320" unique_id=355902895 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.405001, 0, 0, 0, 5.405001, 0, 0, 0, 5.405001, -238.4072, -1.8736234, 143.53487)
 medicine_type = 2
-hospital_stage = 1
 
 [node name="Clue3" parent="." index="321" unique_id=806008815 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -322.6364, -3.9259365, 658.04266)
 medicine_type = 2
-hospital_stage = 1
 
 [node name="Clue4" parent="." index="322" unique_id=2112519343 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 124.86042, -3.45369, 285.38354)

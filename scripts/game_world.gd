@@ -68,6 +68,7 @@ func _ready() -> void:
 
 
 func _return_to_lobby() -> void:
+	GameManager.reset_game()
 	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)
 
 
@@ -370,7 +371,7 @@ func _return_to_lobby_after_result() -> void:
 	if not is_inside_tree():
 		return
 	_result_shown = false
-	GameManager.clear_player_refs()
+	GameManager.reset_game()
 	if VoiceChatManager and VoiceChatManager.has_method("shutdown_voice"):
 		VoiceChatManager.shutdown_voice("game_over_return_lobby")
 	InputMouseGuard.release_for_ui()
@@ -584,7 +585,7 @@ func _request_return_lobby_rpc() -> void:
 @rpc("authority", "reliable", "call_local")
 func _apply_return_lobby() -> void:
 	GameManager.set_paused(false)
-	GameManager.clear_player_refs()
+	GameManager.reset_game()
 	get_tree().paused = false
 	InputMouseGuard.release_for_ui()
 	get_tree().change_scene_to_file(NetworkManager.LOBBY_SCENE)

@@ -26,9 +26,9 @@ enum HospitalStage {
 @export var float_speed: float = 2.0
 @export var float_height: float = 0.3
 @export_flags_3d_physics var environment_mask: int = 1
-@export var client_probe_slack_m: float = 0.8
+@export var client_probe_slack_m: float = 1.5
 ## 视线检测：射线打在台面/地面时，落点距道具中心在此范围内仍视为可拾取
-@export var pickup_los_surface_slack_m: float = 2.0
+@export var pickup_los_surface_slack_m: float = 3.5
 @export var pickup_fx_duration: float = 0.15
 
 var initial_y: float = 0.0
@@ -200,7 +200,9 @@ func _process(delta: float) -> void:
 	if is_collected or _pickup_animating:
 		return
 	_idle_phase += delta * (TAU / 4.0)
-	position.y = initial_y + sin(_idle_phase * float_speed) * float_height
+	# 浮动按「世界高度」算：节点 scale 5~10 时，本地 float_height 不能直接乘进 position
+	var scale_y := maxf(absf(global_transform.basis.get_scale().y), 0.001)
+	position.y = initial_y + sin(_idle_phase * float_speed) * (float_height / scale_y)
 	rotation.y = _idle_phase
 
 
@@ -209,8 +211,8 @@ func can_role_pickup(role: int) -> bool:
 
 
 func get_pickup_focus_position() -> Vector3:
-	# 使用 global_transform，兼容 house_f_1 里放大的预制体实例
-	return global_transform * Vector3(0, 0.2, 0)
+	# 世界空间固定抬高，避免 house_f_1 放大实例把焦点顶到数米外
+	return global_position + Vector3(0.0, 0.35, 0.0)
 
 
 func _can_role_collect(role: int) -> bool:
