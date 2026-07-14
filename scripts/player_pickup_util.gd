@@ -34,9 +34,42 @@ static func get_capsule_center(player: Node3D) -> Vector3:
 
 
 static func get_player_pickup_config(player: Node3D) -> Dictionary:
-	if player != null and player.has_method("get_pickup_probe_config"):
-		return player.call("get_pickup_probe_config")
-	return {}
+	if player == null:
+		return {}
+	# 编辑器中非 @tool 脚本是 placeholder：不能 call 自定义方法，只能读 export
+	if Engine.is_editor_hint():
+		return read_pickup_exports(player)
+	if player.has_method("get_pickup_probe_config"):
+		var result: Variant = player.call("get_pickup_probe_config")
+		if result is Dictionary:
+			return result as Dictionary
+	return read_pickup_exports(player)
+
+
+## 直接读 Inspector export（编辑器 gizmo / 运行时兜底均可用，不依赖脚本方法）
+static func read_pickup_exports(player: Node3D) -> Dictionary:
+	var is_lame := false
+	var script := player.get_script() as Script
+	if script != null:
+		is_lame = String(script.resource_path).ends_with("lame_player.gd")
+	var carrier_h := _export_float(player, "pickup_carrier_height_m", DEFAULT_PLAYER_HEIGHT)
+	return {
+		"radius_scale": _export_float(player, "pickup_radius_scale", 1.0),
+		"forward_scale": _export_float(player, "pickup_forward_scale", 1.0),
+		"max_forward_m": _export_float(player, "pickup_max_forward_m", DEFAULT_MAX_FORWARD_M),
+		"origin_offset_y": _export_float(player, "pickup_origin_offset_y", 0.0),
+		"vertical_half_m": _export_float(player, "pickup_vertical_half_m", -1.0),
+		"use_carrier_height": is_lame,
+		"carrier_height_m": carrier_h,
+		"carrier_player_path": "../BlindPlayer",
+	}
+
+
+static func _export_float(player: Object, property: String, default_value: float) -> float:
+	var value: Variant = player.get(property)
+	if value == null:
+		return default_value
+	return float(value)
 
 
 static func build_probe(player: Node3D, use_flat_forward: bool) -> Dictionary:

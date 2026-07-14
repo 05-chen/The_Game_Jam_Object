@@ -23,8 +23,8 @@ extends CharacterBody3D
 @export_range(0.5, 8.0, 0.05) var pickup_max_forward_m: float = 3.5
 ## 身前最大距离倍数（仅当 max_forward_m ≤ 0 时使用）
 @export_range(0.2, 3.0, 0.05) var pickup_forward_scale: float = 1.5
-## 相对背负抬高后的原点竖直微调（米）
-@export_range(-1.0, 2.0, 0.05) var pickup_origin_offset_y: float = 0.0
+## 相对背负抬高后的原点竖直微调（米）；负值把拾取范围下移，便于捡地面物品
+@export_range(-4.0, 2.0, 0.05) var pickup_origin_offset_y: float = -1.5
 ## 垂直容忍半高（米）：从「肩高」中心向上/下可捡的范围
 @export_range(0.1, 8.0, 0.05) var pickup_vertical_half_m: float = 2.2
 ## 无 CarryAnchor 时，额外抬高量（默认按瞎子身高 1.8）

@@ -13,7 +13,8 @@ func _get_gizmo_name() -> String:
 
 
 func _has_gizmo(node: Node3D) -> bool:
-	return node != null and node.has_method("get_pickup_probe_config")
+	# 勿依赖 has_method：编辑器 placeholder 上 call 会报错；用 export 判定
+	return node != null and node.get("pickup_show_debug") != null and node.get("pickup_radius_scale") != null
 
 
 func _init() -> void:
