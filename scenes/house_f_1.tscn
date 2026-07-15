@@ -286,27 +286,17 @@ transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 257.61462, 8.855517,
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue6" parent="." index="330" unique_id=1024227518 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 319.72745, -3.45369, 79.37579)
-hospital_stage = 2
-medicine_type = 2
-
-[node name="Clue7" parent="." index="331" unique_id=1202453465 instance=ExtResource("3_medicine")]
+[node name="Clue7" parent="." index="330" unique_id=1202453465 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -331.63196, -3.45369, -443.87122)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue8" parent="." index="332" unique_id=1374558376 instance=ExtResource("3_medicine")]
+[node name="Clue8" parent="." index="331" unique_id=1374558376 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 77.07204, -3.45369, -343.4616)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue9" parent="." index="333" unique_id=1654143903 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -165.96774, -3.45369, -142.59782)
-hospital_stage = 2
-medicine_type = 2
-
-[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="334" unique_id=142590855]
+[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="332" unique_id=142590855]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
 
 [node name="GhostPatrolPath" type="Path3D" parent="GhostSpawnPoint_Stage2" index="0" unique_id=687411446]
