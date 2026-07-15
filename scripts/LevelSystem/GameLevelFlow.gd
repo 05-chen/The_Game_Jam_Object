@@ -3,8 +3,9 @@ class_name GameLevelFlow
 
 ## 局内关卡流程（不整场景切换）：
 ##   测试关 room_builder → 实例化 house_f_1（Stage1）
-##   → 集齐 Clue1/2/3 → 黑屏转场 switch_to_stage(2)（同场景偷梁换柱，不重新实例化 GLB）
-##   → 拆 AirWall + 显示 stage2_only 分组 + 生成鬼魂。
+##   → 集齐 Clue1/2/3 → 黑屏转场 switch_to_stage(2)
+##   → 拆 AirWall + 显示 stage2_only（MedicineItem11~22 + Clue4~9 等）+ 生成鬼魂。
+## Stage2 药品无需改代码名单：场景里 hospital_stage=2 即可，由 _sync_hospital_pickup_stage_groups 自动入组。
 
 enum Phase { TUTORIAL, MAIN }
 
@@ -219,6 +220,7 @@ func _on_hospital_level_ready() -> void:
 	if _level_node == null or not is_instance_valid(_level_node):
 		return
 	_ensure_builtin_stage_groups()
+	_sync_hospital_pickup_stage_groups()
 	switch_to_stage(1)
 
 
@@ -228,11 +230,48 @@ func _ensure_builtin_stage_groups() -> void:
 		ghost_spawn.add_to_group(GROUP_STAGE2_ONLY)
 
 
+## 扫描医院场景内药品/线索：按 hospital_stage 校正分组（兼容编辑器新放的 Stage2 药点）
+func _sync_hospital_pickup_stage_groups() -> void:
+	if _level_node == null or not is_instance_valid(_level_node):
+		return
+	var stage1_count := 0
+	var stage2_count := 0
+	var stage2_meds := 0
+	var stage2_clues := 0
+	for node in _level_node.find_children("*", "StaticBody3D", true, false):
+		if node == null or not is_instance_valid(node):
+			continue
+		if not node.has_method("get_hospital_stage"):
+			continue
+		var stage := int(node.call("get_hospital_stage"))
+		# 纠正分组（防止场景里漏设或旧组残留）
+		if node.is_in_group(GROUP_STAGE1_ONLY):
+			node.remove_from_group(GROUP_STAGE1_ONLY)
+		if node.is_in_group(GROUP_STAGE2_ONLY):
+			node.remove_from_group(GROUP_STAGE2_ONLY)
+		if stage == 2:
+			node.add_to_group(GROUP_STAGE2_ONLY)
+			stage2_count += 1
+			var med_type := int(node.get("medicine_type")) if node.get("medicine_type") != null else -1
+			if med_type == 2:
+				stage2_clues += 1
+			elif node.has_method("is_respawnable_medicine") and bool(node.call("is_respawnable_medicine")):
+				stage2_meds += 1
+		else:
+			node.add_to_group(GROUP_STAGE1_ONLY)
+			stage1_count += 1
+	print("[GameLevelFlow] 医院拾取点同步：Stage1=%d | Stage2总计=%d（药=%d 线索=%d）" % [
+		stage1_count, stage2_count, stage2_meds, stage2_clues
+	])
+
+
 ## 集中切换医院 Stage1 / Stage2 分组显隐与交互（不重新实例化大场景）
 func switch_to_stage(stage_num: int) -> void:
 	var stage := clampi(stage_num, 1, 2)
 	_current_hospital_stage = stage
 	GameManager.is_stage_2 = (stage == 2)
+	# 切关前再扫一次，确保新放的 MedicineItem17+ 已进组
+	_sync_hospital_pickup_stage_groups()
 	match stage:
 		1:
 			_set_group_interaction(GROUP_STAGE1_ONLY, true)
@@ -241,7 +280,10 @@ func switch_to_stage(stage_num: int) -> void:
 			_set_group_interaction(GROUP_STAGE1_ONLY, false)
 			_set_group_interaction(GROUP_STAGE2_ONLY, true)
 	_refresh_level_medicine_respawn_pool()
-	print("[GameLevelFlow] 已切换至医院 Stage%d" % stage)
+	print("[GameLevelFlow] 已切换至医院 Stage%d（stage2_only 节点=%d）" % [
+		stage,
+		get_tree().get_nodes_in_group(GROUP_STAGE2_ONLY).size() if get_tree() else 0
+	])
 
 
 func _set_group_interaction(group_name: StringName, active: bool) -> void:

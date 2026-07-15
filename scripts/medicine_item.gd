@@ -118,6 +118,11 @@ func get_hospital_stage() -> int:
 	return int(hospital_stage)
 
 
+## 供 GameLevelFlow 扫描时调用（与 _ready 中注册一致）
+func ensure_hospital_stage_group() -> void:
+	_register_hospital_stage_group()
+
+
 func _register_hospital_stage_group() -> void:
 	match hospital_stage:
 		HospitalStage.STAGE_1:

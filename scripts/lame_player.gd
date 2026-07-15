@@ -134,7 +134,7 @@ func _on_spawning_finished() -> void:
 		InputMouseGuard.capture_for_local_player()
 
 
-## 医院无 WorldEnvironment + 点光稀疏时会漆黑；给瘸子相机单独环境光，并恢复场景灯
+## 医院场景灯已加强：环境光仅作补光，避免洗白（仍只作用于瘸子相机）
 func _setup_lame_view_lighting() -> void:
 	if not is_local or GameManager.current_role != GameManager.ROLE_LAME:
 		return
@@ -145,10 +145,14 @@ func _setup_lame_view_lighting() -> void:
 		env.background_mode = Environment.BG_COLOR
 		env.background_color = Color(0.015, 0.015, 0.02)
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.ambient_light_color = Color(0.42, 0.45, 0.5)
-		env.ambient_light_energy = 0.65
+		env.ambient_light_color = Color(0.38, 0.4, 0.45)
+		# 场景 Omni/Directional 已调亮，环境光降到弱补光
+		env.ambient_light_energy = 0.28
 		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 		camera.environment = env
+	else:
+		# 若环境已存在，跟随场景灯增强同步下调补光
+		camera.environment.ambient_light_energy = mini(camera.environment.ambient_light_energy, 0.28)
 	ensure_scene_lights_for_lame_view()
 
 
