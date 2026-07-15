@@ -10,7 +10,6 @@ class_name GameLevelFlow
 enum Phase { TUTORIAL, MAIN }
 
 const SPAWN_POINT_NAME := &"PlayerSpawnPoint"
-const STAGE2_SPAWN_POINT_NAME := &"PlayerSpawnPoint_Stage2"
 const GROUP_STAGE1_ONLY := &"stage1_only"
 const GROUP_STAGE2_ONLY := &"stage2_only"
 const STAGE_TRANSITION_FADE_SEC := 0.65
@@ -470,15 +469,8 @@ func _perform_stage2_transition() -> void:
 	_show_stage_msg("第一阶段完成，危险区域已开放...")
 
 
+## Stage2 转场后仍回到 Stage1 出生点（PlayerSpawnPoint），避免落到鬼魂附近
 func resolve_stage2_spawn_position() -> Vector3:
-	var search_root: Node = _level_node if _level_node != null and is_instance_valid(_level_node) else _world
-	var marker := search_root.find_child(STAGE2_SPAWN_POINT_NAME, true, false) as Node3D
-	if marker:
-		return marker.global_position
-	marker = search_root.find_child(GHOST_SPAWN_POINT_STAGE2, true, false) as Node3D
-	if marker:
-		return marker.global_position
-	push_warning("[GameLevelFlow] 未找到 Stage2 出生点，保持玩家原位")
 	return resolve_spawn_position()
 
 
