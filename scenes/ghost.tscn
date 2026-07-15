@@ -12,6 +12,9 @@ height = 1.45
 [node name="Ghost" type="CharacterBody3D" unique_id=1251561153]
 collision_layer = 4
 script = ExtResource("1")
+loop_progress_per_sec = 0.006
+chase_speed = 3.5
+body_scale = 2.5
 
 [node name="GhostMesh" type="MeshInstance3D" parent="." unique_id=1349625501]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)

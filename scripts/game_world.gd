@@ -94,16 +94,23 @@ func _resolve_spawn_position() -> Vector3:
 	return _level_flow.resolve_spawn_position()
 
 
-## 联机：Host 读出生点 → 本地生成 → RPC 通知 Client
+## 联机：双方都进 GameWorld 后再生成，避免 Host RPC 打到尚未存在的 /root/GameWorld
 func _init_players_from_spawn_point() -> void:
 	if _players_spawned:
 		return
-	var spawn_pos := _resolve_spawn_position()
+	# 先经 Autoload 握手；不在对方 GameWorld 未就绪时对 /root/GameWorld 发包
+	NetworkManager.notify_local_game_world_ready()
 	if multiplayer.is_server():
+		await NetworkManager.await_all_peers_in_game_world()
+		if not is_inside_tree() or _players_spawned:
+			return
+		var spawn_pos := _resolve_spawn_position()
 		_spawn_players_at(spawn_pos)
 		_rpc_spawn_players_at.rpc(spawn_pos)
 	else:
 		while not _players_spawned:
+			if not is_inside_tree():
+				return
 			await get_tree().process_frame
 
 

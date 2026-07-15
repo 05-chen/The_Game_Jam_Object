@@ -26,8 +26,29 @@ script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 enable_medicine_respawn = true
 
+[node name="Furniture_001" parent="." index="34" unique_id=621963478]
+transform = Transform3D(19.11513, 0, 0, 0, 19.11513, 0.0036946344, 0, -0.0036946344, 19.11513, -277.52795, -5.1150074, 72.897736)
+
+[node name="Furniture_128" parent="." index="35" unique_id=1723303041]
+transform = Transform3D(18.426634, 0, 0, 0, 18.426634, 0.00356156, 0, -0.00356156, 18.426634, -306.2985, -5.118762, 72.69655)
+
 [node name="2_138" parent="." index="67" unique_id=2049580573]
 transform = Transform3D(0.0877651, 4.195837e-06, -0.027302744, 4.9336425e-13, 0.09040997, 2.197822e-05, 0.021708224, -1.6963528e-05, 0.110383414, -343.48566, -5.4989166, 644.97705)
+
+[node name="Furniture2_041" parent="." index="70" unique_id=1904156474]
+transform = Transform3D(-24.929813, -6.9189475e-05, 0.71593875, 6.918948e-05, 24.940092, 0.004819509, -0.71593875, 0.0048195086, -24.929813, -345.38205, -5.491972, 676.21173)
+
+[node name="0_046" parent="." index="102" unique_id=1778012493]
+transform = Transform3D(0.24461229, -1.0312485e-05, -3.6886943e-10, 1.0312485e-05, 0.24461229, 1.7499178e-05, -3.6886943e-10, -1.7499178e-05, 0.24461229, -267.49173, 11.213629, 70.336685)
+
+[node name="0_034-col" parent="." index="103" unique_id=1872738803]
+transform = Transform3D(0.22387505, -3.840737e-06, -3.6537728e-10, 3.840737e-06, 0.22387505, 4.25954e-05, -3.6537728e-10, -4.25954e-05, 0.22387505, -257.45215, 11.214899, 69.7662)
+
+[node name="0_003" parent="." index="104" unique_id=2090514014]
+transform = Transform3D(0.20656838, -3.535546e-06, -3.3634387e-10, 3.535546e-06, 0.20656838, 3.9302562e-05, -3.3634387e-10, -3.9302562e-05, 0.20656838, -296.25464, 10.593568, 69.11855)
+
+[node name="0_5506" parent="." index="113" unique_id=1887515939]
+transform = Transform3D(0.18977444, 0, 0, 0, 0.18977444, 3.668022e-05, 0, -3.668022e-05, 0.18977444, -247.64755, -6.1647205, 74.01253)
 
 [node name="Cube_0025" parent="." index="139" unique_id=1742407806]
 visible = false
@@ -82,7 +103,7 @@ light_energy = 2.577
 omni_range = 24.307
 
 [node name="OmniLight3D4" type="OmniLight3D" parent="." index="290" unique_id=773244767]
-transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 394.34753, 60.529503, 450.98813)
+transform = Transform3D(14.285714, 0, 0, 0, 14.285714, 0, 0, 0, 14.285714, 336.06955, 60.529503, 450.98813)
 light_energy = 3.738
 omni_range = 17.023
 
@@ -165,7 +186,7 @@ transform = Transform3D(7.86, 0, 0, 0, 7.86, 0, 0, 0, 7.86, 400.46353, 8.000333,
 medicine_type = 1
 
 [node name="MedicineItem4" parent="." index="306" unique_id=1966779422 instance=ExtResource("3_medicine")]
-transform = Transform3D(4.545, 0, 0, 0, 4.545, 0, 0, 0, 4.545, -379.07727, 9.666854, 685.4023)
+transform = Transform3D(4.545, 0, 0, 0, 4.545, 0, 0, 0, 4.545, -382.92313, -3.8046863, 665.7088)
 
 [node name="MedicineItem5" parent="." index="307" unique_id=1012203784 instance=ExtResource("3_medicine")]
 transform = Transform3D(7.8549995, 0, 0, 0, 7.8549995, 0, 0, 0, 7.8549995, -445.41516, -2.9021215, 674.21893)
@@ -252,7 +273,7 @@ transform = Transform3D(5.405001, 0, 0, 0, 5.405001, 0, 0, 0, 5.405001, -238.407
 medicine_type = 2
 
 [node name="Clue3" parent="." index="327" unique_id=806008815 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -322.6364, -3.9259365, 658.04266)
+transform = Transform3D(5.355952, -0.15217176, 0.14221981, 0.15266758, 5.3577995, -0.016695453, -0.14168742, 0.020733597, 5.358087, -293.33148, -3.9259365, 704.73193)
 medicine_type = 2
 
 [node name="Clue4" parent="." index="328" unique_id=2112519343 instance=ExtResource("3_medicine")]

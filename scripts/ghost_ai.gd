@@ -20,6 +20,14 @@ enum State { PATROL, CHASE, RETURN }
 @export var attack_range: float = 1.0
 ## 客机 CHASE/RETURN 位置插值速度
 @export var client_lerp_speed: float = 22.0
+@export_group("外观")
+## 整体视觉/碰撞放大（预制体约人高；大医院建议 2~3）
+@export_range(0.5, 6.0, 0.1) var body_scale: float = 2.5
+## 壳体颜色（含透明度）
+@export var ghost_color: Color = Color(0.75, 0.05, 0.05, 0.85)
+## 自发光颜色（黑暗里更易看见）
+@export var ghost_emission: Color = Color(1.0, 0.12, 0.08)
+@export_range(0.0, 8.0, 0.1) var ghost_emission_energy: float = 2.2
 
 const ATTACK_HIT_SCALE: float = 1.08
 
@@ -36,6 +44,7 @@ var _hit_zone: Area3D = null
 var _hit_latched: bool = false
 var _nav: NavigationAgent3D = null
 var _sync_target_pos: Vector3 = Vector3.ZERO
+var _mesh_base_scale: Vector3 = Vector3.ONE
 
 @onready var ghost_mesh: MeshInstance3D = $GhostMesh
 
@@ -43,6 +52,7 @@ var _sync_target_pos: Vector3 = Vector3.ZERO
 func _ready() -> void:
 	add_to_group("ghost_ai")
 	_resolve_path_follow()
+	_apply_body_scale()
 	_apply_ghost_material()
 
 	if NetworkManager.is_multiplayer_game:
@@ -128,26 +138,38 @@ func _get_level_flow() -> GameLevelFlow:
 	return get_tree().get_first_node_in_group("game_level_flow") as GameLevelFlow
 
 
+## 放大网格 + 根节点碰撞；导航半径按同比例加宽
+func _apply_body_scale() -> void:
+	var s := maxf(body_scale, 0.1)
+	scale = Vector3(s, s, s)
+	if ghost_mesh != null:
+		_mesh_base_scale = ghost_mesh.scale
+	print("[GhostAI] 外观 body_scale=%.2f color=%s" % [s, str(ghost_color)])
+
+
 func _apply_ghost_material() -> void:
 	if ghost_mesh == null:
 		return
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.6, 0, 0, 0.8)
+	mat.albedo_color = ghost_color
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.emission_enabled = true
-	mat.emission = Color(0.8, 0, 0)
+	mat.emission = ghost_emission
+	mat.emission_energy_multiplier = ghost_emission_energy
+	mat.roughness = 0.35
 	ghost_mesh.material_override = mat
 
 
 func _setup_navigation_agent() -> void:
 	if _nav != null:
 		return
+	var s := maxf(body_scale, 0.1)
 	_nav = NavigationAgent3D.new()
 	_nav.name = "NavAgent"
-	_nav.path_desired_distance = 0.6
-	_nav.target_desired_distance = 0.5
-	_nav.radius = 0.35
-	_nav.height = 1.6
+	_nav.path_desired_distance = 0.6 * s
+	_nav.target_desired_distance = 0.5 * s
+	_nav.radius = 0.35 * s
+	_nav.height = 1.6 * s
 	_nav.avoidance_enabled = false
 	add_child(_nav)
 	await get_tree().physics_frame
@@ -444,9 +466,11 @@ func _setup_breath_animation_player() -> void:
 	var track_idx := anim.add_track(Animation.TYPE_VALUE)
 	anim.track_set_path(track_idx, NodePath("GhostMesh:scale"))
 	anim.value_track_set_update_mode(track_idx, Animation.UPDATE_CONTINUOUS)
-	anim.track_insert_key(track_idx, 0.0, Vector3.ONE)
-	anim.track_insert_key(track_idx, 1.0, Vector3(1.2, 1.2, 1.2))
-	anim.track_insert_key(track_idx, 2.0, Vector3.ONE)
+	# 呼吸动画基于网格本地缩放，不覆盖根节点 body_scale
+	var base := _mesh_base_scale
+	anim.track_insert_key(track_idx, 0.0, base)
+	anim.track_insert_key(track_idx, 1.0, base * 1.15)
+	anim.track_insert_key(track_idx, 2.0, base)
 	var lib := AnimationLibrary.new()
 	lib.add_animation("breath", anim)
 	ap.add_animation_library("", lib)

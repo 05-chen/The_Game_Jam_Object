@@ -44,6 +44,10 @@ signal session_interrupted(message: String)
 
 var _last_session_interrupt_message: String = ""
 
+## 双方进入 GameWorld 的握手（Autoload 路径始终存在，避免 /root/GameWorld 尚未加载就收 RPC）
+var _game_world_ready_peers: Dictionary = {}
+const GAME_WORLD_READY_TIMEOUT_MS: int = 15000
+
 func _ready() -> void:
 	_init_steam()
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -252,6 +256,7 @@ func hard_cleanup(_reason: String = "manual") -> void:
 	
 	_stop_join_watch()
 	is_multiplayer_game = false
+	clear_game_world_ready()
 	# 1) 先关闭所有 P2P 会话，避免 listen socket 残留
 	_close_steam_p2p_session()
 	# 2) 再释放 Godot 的 multiplayer peer
@@ -339,6 +344,7 @@ func _code_result(ok: bool) -> void:
 @rpc("authority", "reliable", "call_local")
 func start_game_all(host_role: int) -> void:
 	is_multiplayer_game = true
+	clear_game_world_ready()
 	if VoiceChatManager and VoiceChatManager.has_method("startup_voice"):
 		VoiceChatManager.startup_voice("start_game_all")
 	if multiplayer.is_server():
@@ -351,6 +357,56 @@ func start_game_all(host_role: int) -> void:
 func host_start_game(host_role: int) -> void:
 	if is_host and guest_connected:
 		start_game_all.rpc(host_role)
+
+
+## 本机 GameWorld._ready 后上报（走 Autoload，不依赖对方已有 /root/GameWorld）
+func notify_local_game_world_ready() -> void:
+	var my_id := multiplayer.get_unique_id() if multiplayer.multiplayer_peer != null else 0
+	if my_id != 0:
+		_game_world_ready_peers[my_id] = true
+	if multiplayer.is_server():
+		return
+	_rpc_report_game_world_ready.rpc_id(1)
+
+
+@rpc("any_peer", "reliable")
+func _rpc_report_game_world_ready() -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id == 0:
+		return
+	_game_world_ready_peers[sender_id] = true
+	print("[Net] 客机已进入 GameWorld peer=", sender_id)
+
+
+func clear_game_world_ready() -> void:
+	_game_world_ready_peers.clear()
+
+
+## Host：等到所有已连接 peer 都报告进入 GameWorld（或超时）
+func await_all_peers_in_game_world() -> void:
+	if not multiplayer.is_server():
+		return
+	var my_id := multiplayer.get_unique_id()
+	_game_world_ready_peers[my_id] = true
+	var deadline := Time.get_ticks_msec() + GAME_WORLD_READY_TIMEOUT_MS
+	while Time.get_ticks_msec() < deadline:
+		if _are_connected_peers_world_ready():
+			print("[Net] 双方均已进入 GameWorld，可以同步生成玩家")
+			return
+		await get_tree().process_frame
+	push_warning("[Net] 等待客机进入 GameWorld 超时，仍继续（可能出现短暂 RPC 丢包）")
+
+
+func _are_connected_peers_world_ready() -> bool:
+	var my_id := multiplayer.get_unique_id()
+	if not _game_world_ready_peers.get(my_id, false):
+		return false
+	for peer_id in multiplayer.get_peers():
+		if not _game_world_ready_peers.get(peer_id, false):
+			return false
+	return true
 
 # 添加此函数，用于每帧刷新 Steam 的底层信号
 func _process(_delta: float) -> void:
