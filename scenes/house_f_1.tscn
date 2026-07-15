@@ -26,32 +26,26 @@ script = ExtResource("2_level")
 auto_static_body_collision_layer = 1
 enable_medicine_respawn = true
 
-[node name="Furniture_001" parent="." index="34" unique_id=621963478]
-transform = Transform3D(19.11513, 0, 0, 0, 19.11513, 0.0036946344, 0, -0.0036946344, 19.11513, -277.52795, -5.1150074, 70.89867)
-
-[node name="Furniture_128" parent="." index="35" unique_id=1723303041]
-transform = Transform3D(18.426634, 0, 0, 0, 18.426634, 0.00356156, 0, -0.00356156, 18.426634, -306.2985, -5.118762, 70.69748)
-
 [node name="2_138" parent="." index="67" unique_id=2049580573]
 transform = Transform3D(0.0877651, 4.195837e-06, -0.027302744, 4.9336425e-13, 0.09040997, 2.197822e-05, 0.021708224, -1.6963528e-05, 0.110383414, -343.48566, -5.4989166, 644.97705)
-
-[node name="0_046" parent="." index="102" unique_id=1778012493]
-transform = Transform3D(0.24461229, -1.0312485e-05, -3.6886943e-10, 1.0312485e-05, 0.24461229, 1.7499178e-05, -3.6886943e-10, -1.7499178e-05, 0.24461229, -267.49173, 11.213629, 68.337616)
-
-[node name="0_034-col" parent="." index="103" unique_id=1872738803]
-transform = Transform3D(0.22387505, -3.840737e-06, -3.6537728e-10, 3.840737e-06, 0.22387505, 4.25954e-05, -3.6537728e-10, -4.25954e-05, 0.22387505, -257.45215, 11.214899, 67.76713)
-
-[node name="0_003" parent="." index="104" unique_id=2090514014]
-transform = Transform3D(0.20656838, -3.535546e-06, -3.3634387e-10, 3.535546e-06, 0.20656838, 3.9302562e-05, -3.3634387e-10, -3.9302562e-05, 0.20656838, -296.25464, 10.593568, 67.11948)
-
-[node name="0_5506" parent="." index="113" unique_id=1887515939]
-transform = Transform3D(0.18977444, 0, 0, 0, 0.18977444, 3.668022e-05, 0, -3.668022e-05, 0.18977444, -247.64755, -6.1647205, 72.01346)
 
 [node name="Cube_0025" parent="." index="139" unique_id=1742407806]
 visible = false
 
+[node name="2_127" parent="." index="162" unique_id=1477553299]
+transform = Transform3D(0.03785391, 1.6209173e-05, -0.054358136, 0, 0.06623991, 1.9752224e-05, 0.054358143, -1.1287741e-05, 0.037853908, -370.9226, -6.187758, -439.2195)
+
+[node name="2_0021" parent="." index="163" unique_id=1892251702]
+transform = Transform3D(0.07742859, 7.62784e-06, -0.032172676, 0, 0.0815447, 3.0582556e-05, 0.025580281, -2.30886e-05, 0.097383, -326.20407, -6.170477, -377.18387)
+
+[node name="Furniture_166" parent="." index="166" unique_id=1142059127]
+transform = Transform3D(27.45441, 0, 0, 0, 27.45441, 0.0081866905, 0, -0.0081866905, 27.45441, -363.17978, -6.1548295, -459.16138)
+
 [node name="CollisionShape3D" parent="立方体_02523/StaticBody3D" parent_id_path=PackedInt32Array(292174322) index="0" unique_id=1953440068]
 transform = Transform3D(0.99971664, 0.02380403, 2.5296898e-05, -0.023804028, 0.99971664, -3.0116644e-07, -2.5296897e-05, -3.0105002e-07, 0.99999994, 0, 0, 0)
+
+[node name="2_004" parent="." index="185" unique_id=483340860]
+transform = Transform3D(0.08632532, -0.0010316855, -0.2114498, -0.032701686, 0.41756782, -0.01394535, 0.20890649, 0.06579131, 0.085193306, -49.604958, -6.6015267, -441.72043)
 
 [node name="立方体_0231_007" parent="." index="187" unique_id=1921747644]
 transform = Transform3D(2.9040992, 0, 0, 0, 2.9040976, 0.003086228, 0, -0.003086228, 2.9040976, -98.23404, 5.3320074, -637.56805)
@@ -200,7 +194,7 @@ transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -51.61642, 4.5709
 hospital_stage = 2
 
 [node name="MedicineItem12" parent="." index="314" unique_id=518343463 instance=ExtResource("3_medicine")]
-transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -46.44125, -0.73580503, -484.23312)
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -72.88844, -0.73580503, -484.23315)
 hospital_stage = 2
 medicine_type = 1
 
@@ -258,7 +252,7 @@ transform = Transform3D(5.405001, 0, 0, 0, 5.405001, 0, 0, 0, 5.405001, -238.407
 medicine_type = 2
 
 [node name="Clue3" parent="." index="327" unique_id=806008815 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -292.00723, -3.9259365, 706.8994)
+transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -322.6364, -3.9259365, 658.04266)
 medicine_type = 2
 
 [node name="Clue4" parent="." index="328" unique_id=2112519343 instance=ExtResource("3_medicine")]
@@ -277,7 +271,7 @@ hospital_stage = 2
 medicine_type = 2
 
 [node name="Clue7" parent="." index="331" unique_id=1202453465 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -355.17957, -3.45369, -435.96643)
+transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -331.63196, -3.45369, -443.87122)
 hospital_stage = 2
 medicine_type = 2
 
@@ -287,7 +281,7 @@ hospital_stage = 2
 medicine_type = 2
 
 [node name="Clue9" parent="." index="333" unique_id=1654143903 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -159.37451, -3.45369, -142.59782)
+transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -165.96774, -3.45369, -142.59782)
 hospital_stage = 2
 medicine_type = 2
 
@@ -298,7 +292,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
 curve = SubResource("Curve3D_sbl5i")
 
 [node name="PathFollow3D" type="PathFollow3D" parent="GhostSpawnPoint_Stage2/GhostPatrolPath" index="0" unique_id=319214243]
-transform = Transform3D(0.9997807, 0, -0.020530576, 0, 1, 0, 0.020530576, 0, 0.9997807, -5.1864777, -3.203261, 5.045044)
-
-[node name="PlayerSpawnPoint_Stage2" type="Marker3D" parent="." index="335" unique_id=1982736401]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 0.35, -326)
+transform = Transform3D(0.99977696, 0, -0.0205305, 0, 1, 0, 0.0205305, 0, 0.99977696, -5.1864777, -3.203261, 5.045044)
