@@ -55,71 +55,73 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -523, 0.34832704, 452.03497)
 
 [node name="OmniLight3D" type="OmniLight3D" parent="." index="287" unique_id=1891716632]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -506.41074, 66.69272, 446.94736)
-light_energy = 1.937
+light_energy = 1.36
+omni_range = 8.138
 
 [node name="OmniLight3D2" type="OmniLight3D" parent="." index="288" unique_id=120755610]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -328.41745, 60.473503, 436.20953)
-light_energy = 1.235
-omni_range = 9.488
+light_energy = 2.8
+omni_range = 12.188
+omni_attenuation = 0.95
 
 [node name="OmniLight3D3" type="OmniLight3D" parent="." index="289" unique_id=1194316734]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -69, 60.529503, 386.91046)
-light_energy = 1.937
-omni_range = 24.222
+light_energy = 2.577
+omni_range = 24.307
 
 [node name="OmniLight3D4" type="OmniLight3D" parent="." index="290" unique_id=773244767]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 394.34753, 60.529503, 450.98813)
-light_energy = 1.143
-omni_range = 10.459
+light_energy = 3.738
+omni_range = 17.023
 
 [node name="OmniLight3D5" type="OmniLight3D" parent="." index="291" unique_id=259328057]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -305.0609, 61.007027, 133.87451)
-light_energy = 1.143
-omni_range = 6.324
+light_energy = 3.593
+omni_range = 10.293
 
 [node name="OmniLight3D6" type="OmniLight3D" parent="." index="292" unique_id=613302649]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 294.30692, 63.06363, 161.09518)
-light_energy = 1.143
-omni_range = 13.678
+light_energy = 3.233
+omni_range = 24.91
 
 [node name="OmniLight3D7" type="OmniLight3D" parent="." index="293" unique_id=1722352787]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -336.41315, 60.473503, 640.109)
-light_energy = 0.658
-omni_range = 5.615
+light_energy = 2.604
+omni_range = 7.061
 
 [node name="OmniLight3D8" type="OmniLight3D" parent="." index="294" unique_id=1346497772]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -362.61533, 51.736168, -254.43475)
-light_energy = 1.033
-omni_range = 5.615
+light_energy = 3.118
+omni_range = 9.85
 
 [node name="OmniLight3D9" type="OmniLight3D" parent="." index="295" unique_id=215968359]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -353.10928, 52.85255, -469.50974)
-light_energy = 1.233
-omni_range = 5.615
+light_energy = 2.963
+omni_range = 8.167
 
 [node name="OmniLight3D10" type="OmniLight3D" parent="." index="296" unique_id=2018535473]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -129.78847, 50.22056, -488.91354)
-light_energy = 1.118
-omni_range = 5.615
+light_energy = 2.487
+omni_range = 10.616
 
 [node name="OmniLight3D13" type="OmniLight3D" parent="." index="297" unique_id=325990606]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -229.26392, 52.676777, -363.99094)
-light_energy = 1.263
-omni_range = 5.615
+light_energy = 2.777
+omni_range = 8.479
 
 [node name="OmniLight3D11" type="OmniLight3D" parent="." index="298" unique_id=419376298]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, -104.65949, 52.172237, -232.83934)
-light_energy = 1.068
-omni_range = 7.867
+light_energy = 2.581
+omni_range = 10.617
 
 [node name="OmniLight3D12" type="OmniLight3D" parent="." index="299" unique_id=693997996]
 transform = Transform3D(20, 0, 0, 0, 20, 0, 0, 0, 20, 90.569885, 47.36025, -120.09921)
-light_energy = 1.595
-omni_range = 25.363
+light_energy = 1.79
+omni_range = 27.337
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." index="300" unique_id=1692973178]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -75.4491, 608.0974, 56.345367)
-light_energy = 0.078
+light_energy = 0.6
 
 [node name="AirWall" type="StaticBody3D" parent="." index="301" unique_id=1231932780]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -365.91443, -4.722002, 1.7379351)
@@ -202,49 +204,76 @@ medicine_type = 1
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, -394.3768, 3.736906, -473.988)
 hospital_stage = 2
 
-[node name="Clue1" parent="." index="319" unique_id=2035597389 instance=ExtResource("3_medicine")]
+[node name="MedicineItem17" parent="." index="319" unique_id=2018215636 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 54.766247, 9.187746, 481.27005)
+hospital_stage = 2
+medicine_type = 1
+
+[node name="MedicineItem18" parent="." index="320" unique_id=1841631112 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 353.21365, 13.632109, 136.05298)
+hospital_stage = 2
+medicine_type = 1
+
+[node name="MedicineItem19" parent="." index="321" unique_id=834089813 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 199.98349, 2.2418597, 566.8943)
+hospital_stage = 2
+
+[node name="MedicineItem20" parent="." index="322" unique_id=2011131838 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 30.872791, -2.1774535, 334.89645)
+hospital_stage = 2
+
+[node name="MedicineItem21" parent="." index="323" unique_id=1888685853 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 240.93327, -2.212291, 389.07727)
+hospital_stage = 2
+medicine_type = 1
+
+[node name="MedicineItem22" parent="." index="324" unique_id=2112008656 instance=ExtResource("3_medicine")]
+transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 281.71918, 12.376744, 304.11008)
+hospital_stage = 2
+
+[node name="Clue1" parent="." index="325" unique_id=2035597389 instance=ExtResource("3_medicine")]
 transform = Transform3D(9.715, 0, 0, 0, 9.715, 0, 0, 0, 9.715, 115.064316, -1.6487265, 351.59454)
 medicine_type = 2
 
-[node name="Clue2" parent="." index="320" unique_id=355902895 instance=ExtResource("3_medicine")]
+[node name="Clue2" parent="." index="326" unique_id=355902895 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.405001, 0, 0, 0, 5.405001, 0, 0, 0, 5.405001, -238.4072, -1.8736234, 143.53487)
 medicine_type = 2
 
-[node name="Clue3" parent="." index="321" unique_id=806008815 instance=ExtResource("3_medicine")]
+[node name="Clue3" parent="." index="327" unique_id=806008815 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -322.6364, -3.9259365, 658.04266)
 medicine_type = 2
 
-[node name="Clue4" parent="." index="322" unique_id=2112519343 instance=ExtResource("3_medicine")]
+[node name="Clue4" parent="." index="328" unique_id=2112519343 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 124.86042, -3.45369, 285.38354)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue5" parent="." index="323" unique_id=1366820815 instance=ExtResource("3_medicine")]
-transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 259.17737, -3.45369, 589.28253)
+[node name="Clue5" parent="." index="329" unique_id=1366820815 instance=ExtResource("3_medicine")]
+transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 257.61462, 8.855517, 571.8237)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue6" parent="." index="324" unique_id=1024227518 instance=ExtResource("3_medicine")]
+[node name="Clue6" parent="." index="330" unique_id=1024227518 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 319.72745, -3.45369, 79.37579)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue7" parent="." index="325" unique_id=1202453465 instance=ExtResource("3_medicine")]
+[node name="Clue7" parent="." index="331" unique_id=1202453465 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -355.17957, -3.45369, -435.96643)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue8" parent="." index="326" unique_id=1374558376 instance=ExtResource("3_medicine")]
+[node name="Clue8" parent="." index="332" unique_id=1374558376 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, 77.07204, -3.45369, -343.4616)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="Clue9" parent="." index="327" unique_id=1654143903 instance=ExtResource("3_medicine")]
+[node name="Clue9" parent="." index="333" unique_id=1654143903 instance=ExtResource("3_medicine")]
 transform = Transform3D(5.36, 0, 0, 0, 5.36, 0, 0, 0, 5.36, -159.37451, -3.45369, -142.59782)
 hospital_stage = 2
 medicine_type = 2
 
-[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="328" unique_id=142590855]
+[node name="GhostSpawnPoint_Stage2" type="Marker3D" parent="." index="334" unique_id=142590855]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 3.203261, -326)
 
 [node name="GhostPatrolPath" type="Path3D" parent="GhostSpawnPoint_Stage2" index="0" unique_id=687411446]
@@ -253,5 +282,5 @@ curve = SubResource("Curve3D_sbl5i")
 [node name="PathFollow3D" type="PathFollow3D" parent="GhostSpawnPoint_Stage2/GhostPatrolPath" index="0" unique_id=319214243]
 transform = Transform3D(0.9997807, 0, -0.020530576, 0, 1, 0, 0.020530576, 0, 0.9997807, -5.1864777, -3.203261, 5.045044)
 
-[node name="PlayerSpawnPoint_Stage2" type="Marker3D" parent="." index="329" unique_id=1982736401]
+[node name="PlayerSpawnPoint_Stage2" type="Marker3D" parent="." index="335" unique_id=1982736401]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.33691, 0.35, -326)
